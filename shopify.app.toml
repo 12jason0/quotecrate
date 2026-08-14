@@ -1,0 +1,40 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "b8d3a9ffb56d23657e4eb90cc5ff83d9"
+application_url = "https://example.com"
+embedded = true
+name = "quotecrate"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# write_draft_orders is required by the draftOrderCreate mutation used to turn a
+# QUOTED quote into a payable draft order. It is the only scope this app asks
+# for: the two other Admin calls read `shop { currencyCode }` and `shop { email }`,
+# which the docs list no scope requirement for.
+scopes = "write_draft_orders"
+
+[app_proxy]
+# The CLI swaps only the host of this URL when running `app dev`, so the
+# "/apps/quotecrate" path is preserved and the storefront path maps 1:1 onto
+# the app route at app/routes/apps.quotecrate.quote-request.tsx.
+url = "https://example.com/apps/quotecrate"
+prefix = "apps"
+subpath = "quotecrate"
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

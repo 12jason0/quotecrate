@@ -1,0 +1,213 @@
+{%- liquid
+  assign qc_collection = block.settings.collection
+  assign qc_product = block.settings.product
+  assign qc_limit = block.settings.product_limit | default: 20
+
+  # A collection wins when it is set and actually has products; otherwise the
+  # block falls back to the single product it has always supported, so existing
+  # installs keep working untouched.
+  assign qc_use_collection = false
+  if qc_collection != blank and qc_collection.products.size > 0
+    assign qc_use_collection = true
+  endif
+
+  assign qc_has_products = qc_use_collection
+  if qc_product != blank
+    assign qc_has_products = true
+  endif
+-%}
+
+{%- unless qc_has_products -%}
+  {%- comment -%}
+    Nothing to quote. In the theme editor the merchant still needs to see the
+    block, so show a hint there instead of rendering an unusable form.
+  {%- endcomment -%}
+  {%- if request.design_mode -%}
+    <div class="quotecrate-form quotecrate-form--empty">
+      Choose a collection, or a single product, for this block in the theme
+      editor to show the quote form.
+    </div>
+  {%- endif -%}
+{%- else -%}
+  <div class="quotecrate-form" data-quotecrate-block>
+    {%- comment -%}
+      Dark header, matching the buyer quote page at
+      app/routes/apps.quotecrate.quote.tsx so a shopper sees one design from
+      request through to acceptance.
+    {%- endcomment -%}
+    <div class="quotecrate-form__header">
+      {%- if block.settings.badge != blank -%}
+        <span class="quotecrate-form__badge">{{ block.settings.badge }}</span>
+      {%- endif -%}
+
+      <h2 class="quotecrate-form__heading">{{ block.settings.heading }}</h2>
+
+      {%- if block.settings.description != blank -%}
+        <p class="quotecrate-form__description">{{ block.settings.description }}</p>
+      {%- endif -%}
+    </div>
+
+    <form
+      class="quotecrate-form__form"
+      data-quotecrate-form
+      data-endpoint="{{ block.settings.proxy_path }}"
+    >
+      <div class="quotecrate-form__row">
+        <div class="quotecrate-form__field">
+          <label for="quotecrate-name-{{ block.id }}">Your name</label>
+          <input
+            type="text"
+            id="quotecrate-name-{{ block.id }}"
+            name="customerName"
+            autocomplete="name"
+            required
+          >
+        </div>
+
+        <div class="quotecrate-form__field">
+          <label for="quotecrate-email-{{ block.id }}">Email</label>
+          <input
+            type="email"
+            id="quotecrate-email-{{ block.id }}"
+            name="customerEmail"
+            autocomplete="email"
+            required
+          >
+        </div>
+      </div>
+
+      <div class="quotecrate-form__field">
+        <label for="quotecrate-company-{{ block.id }}">
+          Café / company <span>(optional)</span>
+        </label>
+        <input
+          type="text"
+          id="quotecrate-company-{{ block.id }}"
+          name="company"
+          autocomplete="organization"
+        >
+      </div>
+
+      <div class="quotecrate-form__items">
+        {%- if qc_use_collection -%}
+          <span class="quotecrate-form__items-label">Products</span>
+          <p class="quotecrate-form__items-hint">
+            Enter a quantity for each product you want quoted. Leave the rest blank.
+          </p>
+
+          {%- comment -%}
+            A Liquid for loop runs at most 50 iterations, so the range setting
+            below is capped at 50 too — the list can never silently truncate
+            below what the merchant chose.
+          {%- endcomment -%}
+          {%- for qc_item_product in qc_collection.products limit: qc_limit -%}
+            {%- render 'quote-request-item',
+              item_product: qc_item_product,
+              block_id: block.id,
+              item_index: forloop.index,
+              item_quantity: ''
+            -%}
+          {%- endfor -%}
+        {%- else -%}
+          <span class="quotecrate-form__items-label">Product</span>
+
+          {%- render 'quote-request-item',
+            item_product: qc_product,
+            block_id: block.id,
+            item_index: 1,
+            item_quantity: 1
+          -%}
+        {%- endif -%}
+      </div>
+
+      <div class="quotecrate-form__field">
+        <label for="quotecrate-note-{{ block.id }}">
+          Note to the seller <span>(optional)</span>
+        </label>
+        <textarea id="quotecrate-note-{{ block.id }}" name="note" rows="3"></textarea>
+      </div>
+
+      <button type="submit" class="quotecrate-form__submit">
+        {{ block.settings.button_label }}
+      </button>
+
+      <p class="quotecrate-form__subnote">
+        No payment now — you&rsquo;ll review pricing first
+      </p>
+
+      <p class="quotecrate-form__assurance">
+        🔒 We&rsquo;ll only use this to send your quote
+      </p>
+
+      <p class="quotecrate-form__message" data-quotecrate-message role="status" aria-live="polite" hidden></p>
+
+      <p class="quotecrate-form__footer">Powered by QuoteCrate</p>
+    </form>
+  </div>
+{%- endunless -%}
+
+{% schema %}
+{
+  "name": "Request a Quote",
+  "target": "section",
+  "stylesheet": "quote-request.css",
+  "javascript": "quote-request.js",
+  "settings": [
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Wholesale collection",
+      "info": "Shoppers can request a quote for any product in this collection, each with its own quantity. Leave empty to quote a single product instead."
+    },
+    {
+      "type": "range",
+      "id": "product_limit",
+      "label": "Maximum products to show",
+      "min": 5,
+      "max": 50,
+      "step": 5,
+      "default": 20,
+      "info": "Liquid can loop over at most 50 products, so 50 is the ceiling."
+    },
+    {
+      "type": "product",
+      "id": "product",
+      "label": "Single product",
+      "info": "Used only when no collection is selected.",
+      "autofill": true
+    },
+    {
+      "type": "text",
+      "id": "badge",
+      "label": "Badge",
+      "info": "Small label above the heading. Leave empty to hide it.",
+      "default": "☕ Wholesale"
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Request a wholesale quote"
+    },
+    {
+      "type": "textarea",
+      "id": "description",
+      "label": "Description",
+      "default": "Tell us what you need — we'll send pricing within 1–2 business days."
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Button label",
+      "default": "Send quote request"
+    },
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "App proxy path",
+      "info": "Must match the app proxy prefix and subpath configured for this app.",
+      "default": "/apps/quotecrate/quote-request"
+    }
+  ]
+}
+{% endschema %}

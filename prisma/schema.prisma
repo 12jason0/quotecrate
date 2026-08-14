@@ -1,0 +1,108 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+/**
+ * Per-shop facts the app has to know when there is no admin request in flight.
+ *
+ * The storefront quote-request endpoint runs for a shopper, not a merchant, so
+ * every Admin API call it makes is a live call over the offline token that can
+ * fail for reasons the shopper cannot see and the merchant cannot fix. Caching
+ * the answer here turns that into a read of our own database, and a value that
+ * was true the last time we could ask is far better than a wrong default.
+ */
+model ShopSetting {
+  shop      String   @id
+  // The three letter code the shop sells in, mirrored from Admin
+  // `shop { currencyCode }`.
+  currency  String
+  // Doubles as "when the currency was last confirmed": nothing else writes to
+  // this row, so a refresh always touches it.
+  updatedAt DateTime @updatedAt
+}
+
+model Quote {
+  id            String   @id @default(cuid())
+  shop          String
+  customerName  String
+  customerEmail String
+  company       String?
+  // REQUESTED|QUOTED|ACCEPTED|DECLINED|CONVERTED|EXPIRED
+  // String rather than enum because SQLite has no native enum type.
+  status        String   @default("REQUESTED")
+  currency      String   @default("USD")
+  note          String?
+  // Whole minor units of `currency` — won for KRW, cents for USD, fils for
+  // BHD. The scale is the currency's own (see currencyDecimals in app/quotes.ts),
+  // never a fixed 100. BigInt rather than Int so a large total has room even in
+  // a currency with many minor units per major one.
+  quotedTotalMinor BigInt?
+  // Unguessable token that lets the buyer open this one quote on the
+  // storefront without logging in. Null until the quote is sent, so an
+  // unpriced REQUESTED quote has no public URL at all.
+  publicToken   String?  @unique
+  // Unique so the same Shopify draft order can never be recorded against two
+  // quotes: a retry that got as far as creating the order, or a future recovery
+  // path, would otherwise be able to attach one order to a second quote and
+  // invoice the buyer twice for it. SQLite treats NULLs as distinct, so the
+  // many unconverted quotes are unaffected.
+  draftOrderId  String?  @unique
+  // Checkout link returned by draftOrderCreate; the merchant sends this to the
+  // buyer so they can pay the quoted price.
+  invoiceUrl    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  items         QuoteItem[]
+
+  @@index([shop, status])
+  // Backs the flood check the public quote-request endpoint runs before it
+  // writes: "how many quotes has this address filed at this shop recently".
+  @@index([shop, customerEmail, createdAt])
+}
+
+model QuoteItem {
+  id                   String  @id @default(cuid())
+  quoteId              String
+  quote                Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId            String?
+  variantId            String?
+  title                String
+  variantTitle         String?
+  quantity             Int
+  // Whole minor units of the parent quote's currency, same convention as
+  // Quote.quotedTotalMinor.
+  quotedUnitPriceMinor BigInt?
+
+  @@index([quoteId])
+}

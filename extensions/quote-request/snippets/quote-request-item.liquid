@@ -1,0 +1,47 @@
+{%- comment -%}
+  One quotable product row.
+
+  Rendered from blocks/request_quote.liquid for both the collection loop and the
+  single-product fallback, so the two paths can never drift apart in markup or
+  in the data-* attributes the JavaScript reads.
+
+  Parameters:
+    item_product  - product object (required)
+    block_id      - block.id, used to keep input ids unique on the page
+    item_index    - 1-based row number, also for unique ids
+    item_quantity - value for the quantity input ("" for blank, 1 to prefill)
+{%- endcomment -%}
+
+{%- liquid
+  assign qc_variant = item_product.selected_or_first_available_variant | default: item_product.first_available_variant | default: item_product.variants.first
+-%}
+
+<div
+  class="quotecrate-form__item"
+  data-quotecrate-item
+  data-product-id="gid://shopify/Product/{{ item_product.id }}"
+  data-variant-id="{%- if qc_variant -%}gid://shopify/ProductVariant/{{ qc_variant.id }}{%- endif -%}"
+  data-product-title="{{ item_product.title | escape }}"
+  data-variant-title="{%- if qc_variant and qc_variant.title != 'Default Title' -%}{{ qc_variant.title | escape }}{%- endif -%}"
+>
+  <div class="quotecrate-form__item-info">
+    <p class="quotecrate-form__item-title">{{ item_product.title }}</p>
+    {%- if qc_variant and qc_variant.title != 'Default Title' -%}
+      <p class="quotecrate-form__item-variant">{{ qc_variant.title }}</p>
+    {%- endif -%}
+  </div>
+
+  <div class="quotecrate-form__qty">
+    <label for="quotecrate-quantity-{{ block_id }}-{{ item_index }}">Qty</label>
+    <input
+      type="number"
+      id="quotecrate-quantity-{{ block_id }}-{{ item_index }}"
+      name="quantity"
+      value="{{ item_quantity }}"
+      min="0"
+      step="1"
+      inputmode="numeric"
+      placeholder="0"
+    >
+  </div>
+</div>

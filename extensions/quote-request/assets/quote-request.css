@@ -1,0 +1,305 @@
+/* Storefront quote request block.
+ *
+ * Same palette as the buyer quote page (app/routes/apps.quotecrate.quote.tsx),
+ * so a shopper sees one design from requesting a quote through to accepting it.
+ *
+ * Two deliberate differences from that page:
+ *   - the custom properties are scoped to .quotecrate-form rather than :root,
+ *     so they cannot leak into the merchant's theme;
+ *   - no font-family is set anywhere. This block sits inside someone else's
+ *     theme, and overriding its typeface is what makes an app block look
+ *     bolted on. Only colour, spacing and shape are ours.
+ *
+ * Every selector below is scoped under .quotecrate-form for the same reason.
+ */
+
+.quotecrate-form {
+  --qc-brown: #3b2416;
+  --qc-terracotta: #a4552b;
+  --qc-terracotta-strong: #8b4522;
+  --qc-cream: #fffdf9;
+  --qc-tan: #f6efe3;
+  --qc-line: #ecdfcb;
+  --qc-muted: #a08a72;
+  --qc-muted-strong: #8a7458;
+  --qc-card-radius: 22px;
+  --qc-field-radius: 12px;
+  --qc-button-radius: 14px;
+
+  margin: 1.5rem 0;
+  background: var(--qc-cream);
+  border: 1px solid var(--qc-line);
+  border-radius: var(--qc-card-radius);
+  box-shadow: 0 1px 2px rgba(59, 36, 22, 0.05), 0 8px 26px rgba(59, 36, 22, 0.07);
+  overflow: hidden;
+  color: var(--qc-brown);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+/* Theme-editor placeholder: the only variant without the header/body split, so
+   it carries its own padding. */
+.quotecrate-form--empty {
+  padding: 1.25rem 1.4rem;
+  color: var(--qc-muted-strong);
+  font-style: italic;
+}
+
+/* Header */
+
+.quotecrate-form__header {
+  background: var(--qc-brown);
+  color: #ffffff;
+  padding: 1.5rem 1.6rem 1.6rem;
+}
+
+.quotecrate-form__badge {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.quotecrate-form__heading {
+  margin: 0.7rem 0 0.4rem;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  color: #ffffff;
+}
+
+.quotecrate-form__description {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+/* Body */
+
+.quotecrate-form__form {
+  padding: 1.5rem 1.6rem 1.6rem;
+}
+
+.quotecrate-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+
+.quotecrate-form__field {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.quotecrate-form__field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.quotecrate-form__field label span {
+  font-weight: 400;
+  color: var(--qc-muted);
+}
+
+.quotecrate-form__field input,
+.quotecrate-form__field textarea {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--qc-line);
+  border-radius: var(--qc-field-radius);
+  font: inherit;
+  color: var(--qc-brown);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.quotecrate-form__field input:focus,
+.quotecrate-form__field textarea:focus,
+.quotecrate-form__qty input:focus {
+  outline: 2px solid var(--qc-terracotta);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.quotecrate-form__field textarea {
+  resize: vertical;
+}
+
+/* Product + quantity */
+
+.quotecrate-form__items {
+  margin-bottom: 1rem;
+}
+
+.quotecrate-form__items-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.quotecrate-form__items-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  color: var(--qc-muted);
+}
+
+/* Rows repeat one per quotable product, so they need separating from each
+   other rather than only from the fields above and below. */
+.quotecrate-form__item + .quotecrate-form__item {
+  margin-top: 0.5rem;
+}
+
+.quotecrate-form__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  background: var(--qc-tan);
+  border-radius: var(--qc-field-radius);
+}
+
+.quotecrate-form__item-info {
+  min-width: 0;
+}
+
+.quotecrate-form__item-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.quotecrate-form__item-variant {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  color: var(--qc-muted-strong);
+}
+
+.quotecrate-form__qty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.quotecrate-form__qty label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--qc-muted-strong);
+}
+
+.quotecrate-form__qty input {
+  width: 5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--qc-line);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--qc-brown);
+  background: #ffffff;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Submit */
+
+.quotecrate-form__submit {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.95rem 1rem;
+  border: 0;
+  border-radius: var(--qc-button-radius);
+  font: inherit;
+  font-weight: 700;
+  font-size: 1.02rem;
+  cursor: pointer;
+  background: var(--qc-terracotta);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(164, 85, 43, 0.26);
+}
+
+.quotecrate-form__submit:hover {
+  background: var(--qc-terracotta-strong);
+}
+
+.quotecrate-form__submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.quotecrate-form__subnote {
+  margin: 0.6rem 0 0;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--qc-muted);
+}
+
+.quotecrate-form__assurance {
+  margin: 0.9rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--qc-line);
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--qc-muted-strong);
+}
+
+/* Result message */
+
+.quotecrate-form__message {
+  margin: 0.9rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--qc-field-radius);
+  font-size: 0.9rem;
+}
+
+.quotecrate-form__message[data-state="success"] {
+  background: #e7f4ec;
+  color: #185c37;
+}
+
+.quotecrate-form__message[data-state="error"] {
+  background: #fbe6e2;
+  color: #8e1f0b;
+}
+
+.quotecrate-form__footer {
+  margin: 1.1rem 0 0;
+  text-align: center;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  color: var(--qc-muted);
+}
+
+/* Narrow screens: name and email stack, and the quantity control drops below
+   the product name rather than squeezing it. */
+@media (max-width: 480px) {
+  .quotecrate-form__header,
+  .quotecrate-form__form {
+    padding-left: 1.15rem;
+    padding-right: 1.15rem;
+  }
+
+  .quotecrate-form__row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .quotecrate-form__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .quotecrate-form__qty {
+    justify-content: space-between;
+  }
+
+  .quotecrate-form__qty input {
+    width: 6rem;
+  }
+}
