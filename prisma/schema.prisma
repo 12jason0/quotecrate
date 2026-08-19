@@ -59,8 +59,15 @@ model ShopSetting {
   // quote email, so it must be the name the merchant trades under rather than
   // the myshopify subdomain. Null until it has been read once.
   name      String?
-  // When the name was last confirmed. Null while `name` is.
-  nameUpdatedAt DateTime?
+  // The storefront the buyer can reach the merchant through, mirrored from Admin
+  // `shop { primaryDomain { url } }`. The buyer's quote page tells them to
+  // contact the store in several states, and this is what that links to. A
+  // public storefront URL is safe to show; the shop account email is not, since
+  // it can be the owner's personal address.
+  primaryDomainUrl String?
+  // When the cached profile above was last confirmed. Both fields are written
+  // together by one query, so one timestamp covers them. Null until then.
+  profileUpdatedAt DateTime?
   updatedAt DateTime @updatedAt
 }
 

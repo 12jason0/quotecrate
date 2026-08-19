@@ -21,7 +21,7 @@ import { Resend } from "resend";
 import prisma from "./db.server";
 import { escapeHtml } from "./escape-html";
 import { formatMoney, storeName } from "./quotes";
-import { shopName } from "./shop-name.server";
+import { shopProfile } from "./shop-profile.server";
 
 export type QuoteReadyItem = {
   title: string;
@@ -292,7 +292,8 @@ export async function emailQuoteToCustomer({
   // The name the merchant trades under, cached, falling back to the shop handle
   // when it has never been read. Same resolution the buyer's quote page uses, so
   // the email and the page it links to introduce the same store.
-  const store = storeName(shop, await shopName(shop, { admin }));
+  const { name } = await shopProfile(shop, { admin });
+  const store = storeName(shop, name);
 
   const result = await sendQuoteReadyEmail({
     quoteId: quote.id,

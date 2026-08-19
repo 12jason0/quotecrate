@@ -44,6 +44,30 @@ export function statusTone(status: string): BadgeTone {
   return STATUS_TONES[status] ?? "neutral";
 }
 
+/**
+ * The status in the merchant's own words.
+ *
+ * The stored values are the state machine's names. "REQUESTED" is a row state;
+ * what a merchant has is a *new* request. Showing the raw enum leaks our
+ * vocabulary into their dashboard and reads as shouting.
+ *
+ * Kept beside STATUS_TONES so a status can never pick up a colour without also
+ * picking up a label, and used by both the list and the detail page so one quote
+ * is never called two different things on two screens.
+ */
+const STATUS_LABELS: Record<string, string> = {
+  REQUESTED: "New",
+  QUOTED: "Sent",
+  ACCEPTED: "Accepted",
+  DECLINED: "Declined",
+  CONVERTED: "Converted",
+  EXPIRED: "Expired",
+};
+
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
 // A fixed locale keeps server and client output identical, so formatted values
 // never trigger a hydration mismatch.
 const MONEY_LOCALE = "en-US";
@@ -236,7 +260,7 @@ export function inputFromMinor(
  * The store's name as a buyer should see it.
  *
  * `name` is the shop's real, merchant-facing name, read and cached by
- * shop-name.server.ts. It is optional because the buyer-facing pages have to
+ * shop-profile.server.ts. It is optional because the buyer-facing pages have to
  * render whether or not that lookup has ever succeeded, so a missing name falls
  * back to the myshopify subdomain — "acme-coffee" for acme-coffee.myshopify.com.
  * That fallback is a last resort, not the normal path: it is the shop handle,

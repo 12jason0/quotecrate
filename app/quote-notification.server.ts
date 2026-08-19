@@ -106,7 +106,7 @@ export function buildQuoteRequestEmail(notification: QuoteNotification): {
 <html>
   <body style="margin:0;padding:24px;background:#f1f1f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#303030;">
     <div style="max-width:560px;margin:0 auto;padding:24px;background:#ffffff;border-radius:12px;">
-      <h1 style="margin:0 0 16px;font-size:18px;">New wholesale quote request</h1>
+      <h1 style="margin:0 0 16px;font-size:18px;">New quote request</h1>
 
       <table style="border-collapse:collapse;font-size:14px;">${details}</table>
 
@@ -126,7 +126,7 @@ export function buildQuoteRequestEmail(notification: QuoteNotification): {
 </html>`;
 
   return {
-    subject: `New wholesale quote request from ${customerName}`,
+    subject: `New quote request from ${customerName}`,
     html,
   };
 }

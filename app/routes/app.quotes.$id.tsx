@@ -21,11 +21,15 @@ import {
   formatDate,
   formatMoney,
   inputFromMinor,
+  statusLabel,
   statusTone,
 } from "../quotes";
 import { customerQuoteUrl, newPublicToken } from "../public-token.server";
 import { emailQuoteToCustomer } from "../quote-ready.server";
-import { reviveStuckAccepted } from "../quote-recovery.server";
+import {
+  STUCK_ACCEPTED_AFTER_MS,
+  reviveStuckAccepted,
+} from "../quote-recovery.server";
 import { adoptShopCurrency, shopCurrency } from "../shop-currency.server";
 
 /**
@@ -91,6 +95,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const quote = await adoptShopCurrency(revived, currency);
 
   return {
+    // Surfaced so the ACCEPTED banner can state the real recovery window instead
+    // of a number typed into the copy that quietly goes stale.
+    stuckAfterMinutes: Math.round(STUCK_ACCEPTED_AFTER_MS / 60_000),
     // Only set when the quote's currency disagrees with the shop's and could
     // not be corrected, i.e. the quote already carries prices. Surfaced rather
     // than swallowed: converting it would invoice converted amounts, so the
@@ -421,7 +428,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 };
 
 export default function QuoteDetail() {
-  const { quote, customerQuoteUrl, shopCurrencyMismatch } =
+  const { quote, customerQuoteUrl, shopCurrencyMismatch, stuckAfterMinutes } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
@@ -491,10 +498,17 @@ export default function QuoteDetail() {
       ? fetcher.data.emailError
       : undefined;
 
-  // One button per status: prices are only editable while the quote is still a
-  // request, and a CONVERTED quote offers no action that would re-convert it.
-  const canSend = quote.status === "REQUESTED";
+  // The server has always accepted a re-price from QUOTED as well as the first
+  // send from REQUESTED — see SENDABLE_STATUSES — but the page used to lock the
+  // fields the moment a quote went out. That made a mistyped price permanent:
+  // quotes originate from the storefront, so the merchant could not raise a
+  // replacement either. The two now agree.
+  const canSend = (SENDABLE_STATUSES as readonly string[]).includes(
+    quote.status,
+  );
   const canConvert = quote.status === "QUOTED";
+  /** First send versus a re-price, which changes what the buttons promise. */
+  const isFirstSend = quote.status === "REQUESTED";
 
   useEffect(() => {
     if (!sent) return;
@@ -593,7 +607,12 @@ export default function QuoteDetail() {
       <s-link slot="breadcrumb-actions" href="/app/quotes">
         Quotes
       </s-link>
-      {canSend && (
+      {/*
+        Exactly one primary action per status. On a QUOTED quote the next step is
+        the order, so converting is primary and re-pricing sits alongside Delete
+        as the corrective action it is.
+      */}
+      {isFirstSend && (
         <s-button
           slot="primary-action"
           variant="primary"
@@ -613,6 +632,15 @@ export default function QuoteDetail() {
           Convert to order
         </s-button>
       )}
+      {canSend && !isFirstSend && (
+        <s-button
+          slot="secondary-actions"
+          onClick={send}
+          {...(isSubmitting ? { loading: true } : {})}
+        >
+          Update &amp; resend quote
+        </s-button>
+      )}
       <s-button
         slot="secondary-actions"
         tone="critical"
@@ -628,10 +656,27 @@ export default function QuoteDetail() {
           heading={
             lastIntent === "convert"
               ? "Couldn't convert this quote to an order"
-              : "Couldn't send this quote"
+              : isFirstSend
+                ? "Couldn't send this quote"
+                : "Couldn't resend this quote"
           }
         >
           <s-paragraph>{actionError}</s-paragraph>
+        </s-banner>
+      )}
+
+      {quote.status === "ACCEPTED" && (
+        <s-banner tone="info" heading="The customer has accepted this quote">
+          <s-paragraph>
+            Their order is being created. Reload this page in a moment — the
+            payment link appears here as soon as Shopify confirms it.
+          </s-paragraph>
+          <s-paragraph>
+            There is nothing to do in the meantime. If the quote is still sitting
+            here after about {stuckAfterMinutes} minutes, the attempt didn&apos;t
+            finish; QuoteCrate releases it automatically and the Convert to order
+            button comes back so you can complete it yourself.
+          </s-paragraph>
         </s-banner>
       )}
 
@@ -808,7 +853,9 @@ export default function QuoteDetail() {
         <s-stack direction="block" gap="small-200">
           <s-stack direction="inline" gap="small-200">
             <s-text>Status</s-text>
-            <s-badge tone={statusTone(quote.status)}>{quote.status}</s-badge>
+            <s-badge tone={statusTone(quote.status)}>
+              {statusLabel(quote.status)}
+            </s-badge>
           </s-stack>
           <s-paragraph>
             <s-text>Customer: </s-text>

@@ -117,7 +117,7 @@ quotecrate-form
 
       <div class="quotecrate-form__field">
         <label for="quotecrate-company-{{ block.id }}">
-          Café / company <span>(optional)</span>
+          Company <span>(optional)</span>
         </label>
         <input
           type="text"
@@ -220,19 +220,20 @@ quotecrate-form
       "id": "badge",
       "label": "Badge",
       "info": "Small label above the heading. Leave empty to hide it.",
-      "default": "☕ Wholesale"
+      "default": "Wholesale"
     },
     {
       "type": "text",
       "id": "heading",
       "label": "Heading",
-      "default": "Request a wholesale quote"
+      "default": "Request a quote"
     },
     {
       "type": "textarea",
       "id": "description",
       "label": "Description",
-      "default": "Tell us what you need — we'll send pricing within 1–2 business days."
+      "info": "Add your own reply time here if you want to promise one — for example \"We'll send pricing within 2 business days.\" The default deliberately promises nothing, because only you know how fast you can answer.",
+      "default": "Tell us what you need and we'll send you a price."
     },
     {
       "type": "text",

@@ -17,11 +17,12 @@
  * outside the admin, where no Polaris runtime exists.
  */
 
+import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
 import prisma from "../db.server";
 import { reviveStuckAccepted } from "../quote-recovery.server";
-import { shopName } from "../shop-name.server";
+import { shopProfile } from "../shop-profile.server";
 import { authenticate } from "../shopify.server";
 import {
   convertQuoteToDraftOrder,
@@ -79,6 +80,13 @@ const THEME = `
     --qc-muted-strong: #665541;
     --qc-total-bg: #f6efe3;
     --qc-rule: #ecdfcb;
+    /* Declining is the one destructive thing a buyer can do here, so it gets a
+       colour of its own rather than borrowing the accent. */
+    --qc-danger: #a32d16;
+    --qc-danger-strong: #8e1f0b;
+    /* A rule strong enough to read as a control boundary. --qc-rule is a
+       decorative hairline and does not clear the 3:1 WCAG 1.4.11 asks of one. */
+    --qc-border-strong: #9c8768;
 
     --qc-card-radius: 22px;
     --qc-button-radius: 14px;
@@ -255,6 +263,38 @@ const STYLES = `
     text-underline-offset: 3px;
   }
   .btn--decline:hover { color: var(--qc-text); }
+
+  /* Confirmation step. Both choices are real buttons: an escape hatch from an
+     irreversible action should not be a faint link. */
+  .confirm__title {
+    font-family: var(--qc-heading-font);
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  .confirm__text {
+    margin: 0 0 18px;
+    font-size: 15px;
+    color: var(--qc-muted-strong);
+  }
+  .btn--danger {
+    background: none;
+    color: var(--qc-danger);
+    border: 2px solid var(--qc-danger);
+  }
+  .btn--danger:hover {
+    background: var(--qc-danger);
+    color: #fff;
+  }
+  .btn--cancel {
+    background: none;
+    color: var(--qc-text);
+    border: 1px solid var(--qc-border-strong);
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  .btn--cancel:hover { border-color: var(--qc-text); }
+
   .btn[disabled] { opacity: .55; cursor: default; }
   .reassure {
     margin: 0 0 14px;
@@ -262,6 +302,17 @@ const STYLES = `
     font-size: 13.5px;
     color: var(--qc-muted);
   }
+
+  /* Contact route. Appears wherever the buyer is told to reach the store, so it
+     has to read as an action rather than as more prose. */
+  .contact { margin: 14px 0 0; }
+  .contact__link {
+    color: var(--qc-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .contact__link:hover { color: var(--qc-accent-strong); }
 
   /* Status / message screens */
   .msg { margin: 0; }
@@ -319,11 +370,62 @@ ${body}
 }
 
 /**
+ * What the buyer is told about the store: what to call it, and where to reach
+ * it. Resolved once per request and handed to every page-building function, so
+ * a page rendered from any branch names and links the store the same way and one
+ * request never makes the lookup twice.
+ */
+type StoreContext = { name: string; url: string | null };
+
+/** Used before a shop is known, and when the profile lookup comes back empty. */
+const NO_STORE: StoreContext = { name: "", url: null };
+
+async function resolveStore(
+  shop: string,
+  admin?: AdminApiContext,
+): Promise<StoreContext> {
+  // No verified shop means nothing to look up and nothing safe to link to.
+  if (!shop) return NO_STORE;
+
+  // Cached, so this is normally a read of our own database rather than a live
+  // Admin call, and it never throws — a failed lookup costs the nicer name and
+  // the link, not the page.
+  const profile = await shopProfile(shop, { admin });
+
+  return { name: storeName(shop, profile.name), url: profile.url };
+}
+
+/**
+ * The way out of a dead end.
+ *
+ * Every state that tells the buyer to contact the store gets this line, so the
+ * instruction is never given without a way to follow it. When the storefront URL
+ * could not be resolved it renders nothing and the sentence stands on its own,
+ * which is what it did before — never a broken or invented link.
+ *
+ * Opens in a new tab so the buyer does not lose the quote they are reading, and
+ * `rel` is set because the target is outside this page's control.
+ */
+function contactLine(store: StoreContext): string {
+  if (!store.url) return "";
+
+  const label = store.name
+    ? `Visit ${escapeHtml(store.name)}`
+    : "Visit the store";
+
+  return `<p class="contact">
+    <a class="contact__link" href="${escapeHtml(
+      store.url,
+    )}" target="_blank" rel="noopener noreferrer">${label} &rarr;</a>
+  </p>`;
+}
+
+/**
  * Deliberately says nothing about whether the token exists: an unknown token,
  * a token from another shop and a malformed one all look identical from
  * outside, so this page cannot be used to probe for valid links.
  */
-function notFoundPage(): Response {
+function notFoundPage(store: StoreContext = NO_STORE): Response {
   return page(
     "Quote not available",
     shell({
@@ -333,20 +435,27 @@ function notFoundPage(): Response {
       body: `<p class="msg__text">
         The link may be incorrect or no longer active. Please check the link in
         your email, or contact the store for a new one.
-      </p>`,
+      </p>
+      ${contactLine(store)}`,
     }),
     { status: 404 },
   );
 }
 
-function errorPage(heading: string, message: string, status = 400): Response {
+function errorPage(
+  heading: string,
+  message: string,
+  status = 400,
+  store: StoreContext = NO_STORE,
+): Response {
   return page(
     heading,
     shell({
       badge: "Something went wrong",
       title: heading,
       meta: "",
-      body: `<p class="msg__text">${escapeHtml(message)}</p>`,
+      body: `<p class="msg__text">${escapeHtml(message)}</p>
+      ${contactLine(store)}`,
     }),
     { status },
   );
@@ -483,6 +592,23 @@ function totalsBox(quote: QuoteWithItems): string {
     <p class="tax-note">Taxes and shipping are calculated at checkout.</p>`;
 }
 
+/**
+ * Double-submit guard, shared by every decision form on this page.
+ *
+ * Progressive enhancement only: with JavaScript off the buttons simply stay
+ * enabled, and the server's own compare-and-set is what actually stops a quote
+ * being acted on twice.
+ */
+const ONCE_SCRIPT = `<script>
+    document.querySelectorAll('form[data-once]').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        document.querySelectorAll('form[data-once] button').forEach(function (b) {
+          b.disabled = true;
+        });
+      });
+    });
+  </script>`;
+
 /** The buyer's decision form. Only rendered while the quote is still QUOTED. */
 function decisionForm(token: string): string {
   const safeToken = escapeHtml(token);
@@ -500,20 +626,49 @@ function decisionForm(token: string): string {
     <form method="post" data-once>
       <input type="hidden" name="token" value="${safeToken}">
       <input type="hidden" name="intent" value="decline">
-      <button type="submit" class="btn btn--decline">No thanks, maybe later</button>
+      <button type="submit" class="btn btn--decline">Decline this quote</button>
     </form>
   </div>
-  <script>
-    // Converting a quote creates a real draft order, so a double click must not
-    // be able to submit twice while the first request is still in flight.
-    document.querySelectorAll('form[data-once]').forEach(function (form) {
-      form.addEventListener('submit', function () {
-        document.querySelectorAll('form[data-once] button').forEach(function (b) {
-          b.disabled = true;
-        });
-      });
-    });
-  </script>`;
+  ${ONCE_SCRIPT}`;
+}
+
+/**
+ * The confirmation step for declining.
+ *
+ * Declining is final: it closes the quote and there is no way back from the
+ * buyer's side. So the first click lands here rather than on the database, and
+ * the buyer answers a question they can actually see the consequences of. It
+ * replaces the decision buttons in place, on the same page, so the items and the
+ * total they are about to turn down are still in front of them.
+ *
+ * Both choices are forms rather than links. A link would have to rebuild the app
+ * proxy's signed query string to get back to this page, whereas a POST with no
+ * action attribute goes to the current URL and carries that signature untouched.
+ * It also means the whole step works with JavaScript turned off — which this
+ * page has always supported and must keep supporting.
+ */
+function declineConfirmForm(token: string): string {
+  const safeToken = escapeHtml(token);
+
+  return `<div class="decision">
+    <p class="confirm__title">Decline this quote?</p>
+    <p class="confirm__text">
+      This can&rsquo;t be undone. The quote closes and the prices above stop
+      being available to you &mdash; you would have to ask the store to send a
+      new one.
+    </p>
+    <form method="post" data-once>
+      <input type="hidden" name="token" value="${safeToken}">
+      <input type="hidden" name="intent" value="decline-confirm">
+      <button type="submit" class="btn btn--danger">Yes, decline this quote</button>
+    </form>
+    <form method="post" data-once>
+      <input type="hidden" name="token" value="${safeToken}">
+      <input type="hidden" name="intent" value="review">
+      <button type="submit" class="btn btn--cancel">Cancel &mdash; keep reviewing</button>
+    </form>
+  </div>
+  ${ONCE_SCRIPT}`;
 }
 
 /**
@@ -521,7 +676,7 @@ function decisionForm(token: string): string {
  * QUOTED is terminal from the buyer's side, so each case explains what happened
  * instead of offering an action that would be rejected anyway.
  */
-function statusMessage(quote: QuoteWithItems): string {
+function statusMessage(quote: QuoteWithItems, store: StoreContext): string {
   switch (quote.status) {
     case "REQUESTED":
       return `<div class="msg">
@@ -546,7 +701,8 @@ function statusMessage(quote: QuoteWithItems): string {
             : `<p class="msg__text">
                  Check your email for the payment link, or contact the store if
                  it hasn't arrived.
-               </p>`
+               </p>
+               ${contactLine(store)}`
         }
       </div>`;
 
@@ -566,6 +722,7 @@ function statusMessage(quote: QuoteWithItems): string {
           No order was created. Contact the store if you'd like them to send a
           new quote.
         </p>
+        ${contactLine(store)}
       </div>`;
 
     case "EXPIRED":
@@ -575,6 +732,7 @@ function statusMessage(quote: QuoteWithItems): string {
           The prices are no longer valid. Contact the store to request an
           updated quote.
         </p>
+        ${contactLine(store)}
       </div>`;
 
     default:
@@ -587,11 +745,15 @@ function statusMessage(quote: QuoteWithItems): string {
  * rather than looked up here: naming the store is a cached Admin read, and this
  * function is called from a dozen branches that must not each fire one.
  */
-function quotePage(quote: QuoteWithItems, store: string): Response {
+function quotePage(
+  quote: QuoteWithItems,
+  store: StoreContext,
+  { confirmingDecline = false }: { confirmingDecline?: boolean } = {},
+): Response {
   const { badge, title } = heroCopy(quote.status);
 
   const meta = [
-    `From ${escapeHtml(store)}`,
+    `From ${escapeHtml(store.name)}`,
     `#${escapeHtml(quoteNumber(quote.id))}`,
     escapeHtml(formatDate(quote.createdAt)),
   ].join(" &middot; ");
@@ -608,8 +770,10 @@ function quotePage(quote: QuoteWithItems, store: string): Response {
   // was quoted.
   const footer =
     quote.status === "QUOTED"
-      ? decisionForm(quote.publicToken ?? "")
-      : `<div class="divider-top">${statusMessage(quote)}</div>`;
+      ? confirmingDecline
+        ? declineConfirmForm(quote.publicToken ?? "")
+        : decisionForm(quote.publicToken ?? "")
+      : `<div class="divider-top">${statusMessage(quote, store)}</div>`;
 
   const body = shell({
     badge,
@@ -675,10 +839,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = session?.shop ?? url.searchParams.get("shop") ?? "";
   const token = readToken(url.searchParams.get("token"));
 
-  if (!shop || !token) return notFoundPage();
+  // Resolved before the first exit: "this quote isn't available" is reachable
+  // from the very first check, and that is exactly the page a buyer most needs a
+  // way out of.
+  const store = await resolveStore(shop);
+
+  if (!shop || !token) return notFoundPage(store);
 
   const found = await findQuoteByToken(shop, token);
-  if (!found) return notFoundPage();
+  if (!found) return notFoundPage(store);
 
   // An accept that died before Shopify answered leaves the quote ACCEPTED with
   // no draft order, and this page then shows the buyer "the store is finalising
@@ -686,11 +855,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // on the way in puts the quote back to QUOTED, so the page renders its Accept
   // button again and the buyer has a way forward.
   const quote = await reviveStuckAccepted(found);
-
-  // Cached, so this is normally a read of our own database rather than a live
-  // Admin call. A failed lookup returns null and the buyer sees the shop handle,
-  // which is worse but never blank.
-  const store = storeName(shop, await shopName(shop));
 
   return quotePage(quote, store);
 };
@@ -714,20 +878,37 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const token = readToken(formData.get("token")) ||
     readToken(url.searchParams.get("token"));
 
-  if (!shop || !token) return notFoundPage();
+  // Same lookup the loader does, so every page this action renders names and
+  // links the store the same way as the page the buyer just submitted from.
+  const store = await resolveStore(shop, admin ?? undefined);
+
+  if (!shop || !token) return notFoundPage(store);
 
   const found = await findQuoteByToken(shop, token);
-  if (!found) return notFoundPage();
+  if (!found) return notFoundPage(store);
 
   // Same recovery the loader performs, repeated here so a form posted from a
   // page that was rendered before the release still goes through.
   const quote = await reviveStuckAccepted(found);
 
-  // Same lookup the loader does, so every page this action renders is headed the
-  // same way as the one the buyer just submitted from.
-  const store = storeName(shop, await shopName(shop, { admin: admin ?? undefined }));
-
   if (intent === "decline") {
+    // The first click only asks. Nothing is written here — the quote is still
+    // QUOTED when this returns, and stays that way unless the buyer confirms on
+    // the screen it renders.
+    //
+    // A page left open from before this step existed posts this same intent
+    // expecting an immediate decline. It now gets the question instead, which is
+    // the safe direction for the change to fail in.
+    return quotePage(quote, store, { confirmingDecline: true });
+  }
+
+  if (intent === "review") {
+    // "Cancel — keep reviewing" from that screen. Also writes nothing; it just
+    // puts the decision buttons back.
+    return quotePage(quote, store);
+  }
+
+  if (intent === "decline-confirm") {
     // Conditional on the current status so a stale tab can't decline a quote
     // the buyer has already accepted and paid for.
     const declined = await prisma.quote.updateMany({
@@ -738,14 +919,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (declined.count === 0) {
       // Someone else already moved it; show whatever it is now.
       const current = await findQuoteByToken(shop, token);
-      return current ? quotePage(current, store) : notFoundPage();
+      return current ? quotePage(current, store) : notFoundPage(store);
     }
 
     return quotePage({ ...quote, status: "DECLINED" }, store);
   }
 
   if (intent !== "accept") {
-    return errorPage("Unsupported action", "That action isn't available.", 400);
+    return errorPage(
+      "Unsupported action",
+      "That action isn't available.",
+      400,
+      store,
+    );
   }
 
   if (quote.status === "CONVERTED") {
@@ -765,6 +951,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       "We couldn't process this right now",
       "The store isn't reachable at the moment. Please try again shortly, or contact the store.",
       503,
+      store,
     );
   }
 
@@ -779,7 +966,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (claimed.count === 0) {
     const current = await findQuoteByToken(shop, token);
-    return current ? quotePage(current, store) : notFoundPage();
+    return current ? quotePage(current, store) : notFoundPage(store);
   }
 
   // The same engine the merchant's "Convert to order" button uses, including
@@ -818,6 +1005,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       "We couldn't complete your order",
       "Something went wrong while creating your order. Please try again, or contact the store — they can send you a payment link directly.",
       502,
+      store,
     );
   }
 

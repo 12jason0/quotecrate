@@ -14,6 +14,7 @@ import {
   minorToNumber,
   formatDate,
   formatMoney,
+  statusLabel,
   statusTone,
 } from "../quotes";
 import { FALLBACK_CURRENCY, shopCurrency } from "../shop-currency.server";
@@ -151,7 +152,7 @@ export default function QuotesIndex() {
             {requestedCount === 1 ? "There is" : "There are"} {requestedCount}{" "}
             quote {requestedCount === 1 ? "request" : "requests"} still waiting
             to be priced. Open the {requestedCount === 1 ? "row" : "rows"}{" "}
-            marked <s-badge tone="info">New</s-badge> below to enter unit
+            marked <s-text type="strong">New</s-text> below to enter unit
             prices.
           </s-paragraph>
         </s-banner>
@@ -201,21 +202,17 @@ export default function QuotesIndex() {
                   clickDelegate={`quote-link-${quote.id}`}
                 >
                   <s-table-cell>
-                    {/* s-table-row has no tone/highlight prop, so the "new"
-                        marker has to live inside a cell. */}
-                    <s-stack direction="inline" gap="small-200">
-                      <s-link
-                        id={`quote-link-${quote.id}`}
-                        href={`/app/quotes/${quote.id}`}
-                      >
-                        {quote.customerName}
-                      </s-link>
-                      {quote.status === "REQUESTED" && (
-                        <s-badge tone="info" color="strong">
-                          New
-                        </s-badge>
-                      )}
-                    </s-stack>
+                    {/* A REQUESTED quote used to carry a second "New" badge
+                        here as well as in the Status column, so the same row
+                        was labelled twice with two different words. The Status
+                        column says "New" now, which is the one place a reader
+                        looks for it. */}
+                    <s-link
+                      id={`quote-link-${quote.id}`}
+                      href={`/app/quotes/${quote.id}`}
+                    >
+                      {quote.customerName}
+                    </s-link>
                   </s-table-cell>
                   <s-table-cell>{quote.company ?? "—"}</s-table-cell>
                   <s-table-cell>{quote.itemCount}</s-table-cell>
@@ -224,7 +221,7 @@ export default function QuotesIndex() {
                   </s-table-cell>
                   <s-table-cell>
                     <s-badge tone={statusTone(quote.status)}>
-                      {quote.status}
+                      {statusLabel(quote.status)}
                     </s-badge>
                   </s-table-cell>
                   <s-table-cell>{quote.createdAt}</s-table-cell>
