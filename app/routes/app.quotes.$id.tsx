@@ -24,6 +24,7 @@ import {
   statusTone,
 } from "../quotes";
 import { customerQuoteUrl, newPublicToken } from "../public-token.server";
+import { emailQuoteToCustomer } from "../quote-ready.server";
 import { reviveStuckAccepted } from "../quote-recovery.server";
 import { adoptShopCurrency, shopCurrency } from "../shop-currency.server";
 
@@ -398,10 +399,24 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     };
   }
 
+  const quoteUrl = customerQuoteUrl(session.shop, publicToken);
+
+  // The whole point of "Send quote": the customer is told, and the page reports
+  // truthfully whether they were.
+  const customerEmail = await emailQuoteToCustomer({
+    shop: session.shop,
+    admin,
+    quote,
+    unitPriceMinorById: byId,
+    totalMinor,
+    quoteUrl,
+  });
+
   return {
     sent: true,
     totalMinor,
-    customerQuoteUrl: customerQuoteUrl(session.shop, publicToken),
+    customerQuoteUrl: quoteUrl,
+    ...customerEmail,
   };
 };
 
@@ -428,6 +443,23 @@ export default function QuoteDetail() {
   const actionError =
     fetcher.data && "error" in fetcher.data ? fetcher.data.error : undefined;
   const sent = fetcher.data && "sent" in fetcher.data ? fetcher.data.sent : false;
+
+  // How the customer's "your quote is ready" email went on the submission that
+  // just finished. Undefined outside a send. Named apart from the conversion's
+  // own `emailSent` below, which reports the Shopify invoice email instead —
+  // the two must never light up each other's banners.
+  const quoteEmail =
+    fetcher.data && "quoteEmail" in fetcher.data
+      ? fetcher.data.quoteEmail
+      : undefined;
+  const quoteEmailTo =
+    fetcher.data && "quoteEmailTo" in fetcher.data
+      ? fetcher.data.quoteEmailTo
+      : undefined;
+  const quoteEmailError =
+    fetcher.data && "quoteEmailError" in fetcher.data
+      ? fetcher.data.quoteEmailError
+      : undefined;
   const converted =
     fetcher.data && "converted" in fetcher.data ? fetcher.data.converted : false;
 
@@ -465,10 +497,25 @@ export default function QuoteDetail() {
   const canConvert = quote.status === "QUOTED";
 
   useEffect(() => {
-    if (sent) {
-      shopify.toast.show("Quote sent");
+    if (!sent) return;
+
+    // The button says "Send quote", so the toast has to report the *email*, not
+    // the save. Claiming "Quote sent" when nothing reached the customer is
+    // exactly the lie this replaced.
+    if (quoteEmail === "sent") {
+      shopify.toast.show(`Quote emailed to ${quoteEmailTo}`);
+      return;
     }
-  }, [sent, shopify]);
+
+    if (quoteEmail === "skipped") {
+      shopify.toast.show(
+        "Prices saved — the customer was already emailed a moment ago",
+      );
+      return;
+    }
+
+    shopify.toast.show("Prices saved, but the customer wasn't emailed");
+  }, [sent, quoteEmail, quoteEmailTo, shopify]);
 
   useEffect(() => {
     if (!converted) return;
@@ -611,6 +658,17 @@ export default function QuoteDetail() {
         </s-banner>
       )}
 
+      {quoteEmail === "failed" && (
+        <s-banner tone="warning" heading="The customer wasn't emailed">
+          <s-paragraph>
+            The prices were saved and the quote link is live — only the email
+            failed. Copy the customer quote link below and send it to{" "}
+            {quoteEmailTo} yourself.
+          </s-paragraph>
+          {quoteEmailError && <s-paragraph>{quoteEmailError}</s-paragraph>}
+        </s-banner>
+      )}
+
       {emailSent === true && (
         <s-banner tone="success" heading="Invoice emailed to the customer">
           <s-paragraph>
@@ -635,7 +693,7 @@ export default function QuoteDetail() {
           <s-stack direction="block" gap="base">
             <s-paragraph>
               {quote.status === "QUOTED"
-                ? "Send this link to your customer; they can review and accept it themselves. Accepting takes them straight to a payment page."
+                ? "This is the link your customer was emailed. They can review and accept the quote themselves, and accepting takes them straight to a payment page. Share it directly if you need to."
                 : "This is the customer's own view of this quote. It shows the current status, so it stays useful after the quote is accepted or declined."}
             </s-paragraph>
 

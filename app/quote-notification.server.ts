@@ -13,6 +13,7 @@
 
 import { Resend } from "resend";
 
+import { escapeHtml, escapeMultiline } from "./escape-html";
 import { getShopEmail } from "./shop-email.server";
 
 export type QuoteNotificationItem = {
@@ -30,28 +31,6 @@ export type QuoteNotification = {
   note: string | null;
   items: QuoteNotificationItem[];
 };
-
-const HTML_ESCAPES: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-/**
- * Every value in this email is storefront input, so it is escaped before it is
- * interpolated — a shopper must not be able to put markup in the merchant's
- * inbox.
- */
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character]);
-}
-
-/** Free-text notes are typed with line breaks; keep them visible. */
-function escapeMultiline(value: string): string {
-  return escapeHtml(value).replace(/\r?\n/g, "<br />");
-}
 
 /**
  * Deep link to this quote's detail page in the Shopify admin.

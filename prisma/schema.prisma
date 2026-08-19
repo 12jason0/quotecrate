@@ -47,8 +47,20 @@ model ShopSetting {
   // The three letter code the shop sells in, mirrored from Admin
   // `shop { currencyCode }`.
   currency  String
-  // Doubles as "when the currency was last confirmed": nothing else writes to
-  // this row, so a refresh always touches it.
+  // When the currency was last confirmed against Shopify.
+  //
+  // Explicit rather than the row's `updatedAt`: the row now carries a second
+  // cached fact with its own refresh cycle, and `@updatedAt` bumps on any write.
+  // Reading freshness off it would mean a name refresh silently marked the
+  // currency fresh too, and the currency would stop being re-read at all.
+  currencyUpdatedAt DateTime @default(now())
+  // The shop's own name — "Acme Coffee Roasters", not "acme-coffee" — mirrored
+  // from Admin `shop { name }`. Buyers see this on their quote page and in the
+  // quote email, so it must be the name the merchant trades under rather than
+  // the myshopify subdomain. Null until it has been read once.
+  name      String?
+  // When the name was last confirmed. Null while `name` is.
+  nameUpdatedAt DateTime?
   updatedAt DateTime @updatedAt
 }
 
@@ -81,6 +93,14 @@ model Quote {
   // Checkout link returned by draftOrderCreate; the merchant sends this to the
   // buyer so they can pay the quoted price.
   invoiceUrl    String?
+  // When the "your quote is ready" email was last sent to the customer.
+  //
+  // Claimed with a compare-and-set before the mail is handed to Resend, so two
+  // sends racing each other (a double click, or two admin tabs) cannot both
+  // deliver. Cleared again when the send fails, so a retry is never blocked by
+  // an attempt that produced no email. Null means the customer has never been
+  // emailed this quote.
+  quoteEmailSentAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   items         QuoteItem[]

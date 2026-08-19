@@ -21,12 +21,18 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
 import prisma from "../db.server";
 import { reviveStuckAccepted } from "../quote-recovery.server";
+import { shopName } from "../shop-name.server";
 import { authenticate } from "../shopify.server";
 import {
   convertQuoteToDraftOrder,
   sendDraftOrderInvoice,
 } from "../draft-order.server";
-import { minorToNumber, formatDate, formatMoney } from "../quotes";
+import {
+  minorToNumber,
+  formatDate,
+  formatMoney,
+  storeName,
+} from "../quotes";
 
 const TOKEN_MAX_LENGTH = 200;
 
@@ -69,8 +75,8 @@ const THEME = `
     --qc-accent: #a4552b;
     --qc-accent-strong: #8b4522;
     --qc-text: #3b2416;
-    --qc-muted: #a08a72;
-    --qc-muted-strong: #8a7458;
+    --qc-muted: #786651;
+    --qc-muted-strong: #665541;
     --qc-total-bg: #f6efe3;
     --qc-rule: #ecdfcb;
 
@@ -393,11 +399,6 @@ function heroCopy(status: string): { badge: string; title: string } {
   }
 }
 
-/** "wholesale-quote-dev.myshopify.com" reads as "wholesale-quote-dev". */
-function storeName(shop: string): string {
-  return shop.replace(/\.myshopify\.com$/i, "") || shop;
-}
-
 /** A cuid is too long to read out over the phone; its tail is enough. */
 function quoteNumber(id: string): string {
   return id.slice(-6).toUpperCase();
@@ -581,11 +582,16 @@ function statusMessage(quote: QuoteWithItems): string {
   }
 }
 
-function quotePage(quote: QuoteWithItems): Response {
+/**
+ * `store` is resolved once per request by the loader or action and handed in,
+ * rather than looked up here: naming the store is a cached Admin read, and this
+ * function is called from a dozen branches that must not each fire one.
+ */
+function quotePage(quote: QuoteWithItems, store: string): Response {
   const { badge, title } = heroCopy(quote.status);
 
   const meta = [
-    `From ${escapeHtml(storeName(quote.shop))}`,
+    `From ${escapeHtml(store)}`,
     `#${escapeHtml(quoteNumber(quote.id))}`,
     escapeHtml(formatDate(quote.createdAt)),
   ].join(" &middot; ");
@@ -681,7 +687,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // button again and the buyer has a way forward.
   const quote = await reviveStuckAccepted(found);
 
-  return quotePage(quote);
+  // Cached, so this is normally a read of our own database rather than a live
+  // Admin call. A failed lookup returns null and the buyer sees the shop handle,
+  // which is worse but never blank.
+  const store = storeName(shop, await shopName(shop));
+
+  return quotePage(quote, store);
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -712,6 +723,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // page that was rendered before the release still goes through.
   const quote = await reviveStuckAccepted(found);
 
+  // Same lookup the loader does, so every page this action renders is headed the
+  // same way as the one the buyer just submitted from.
+  const store = storeName(shop, await shopName(shop, { admin: admin ?? undefined }));
+
   if (intent === "decline") {
     // Conditional on the current status so a stale tab can't decline a quote
     // the buyer has already accepted and paid for.
@@ -723,10 +738,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (declined.count === 0) {
       // Someone else already moved it; show whatever it is now.
       const current = await findQuoteByToken(shop, token);
-      return current ? quotePage(current) : notFoundPage();
+      return current ? quotePage(current, store) : notFoundPage();
     }
 
-    return quotePage({ ...quote, status: "DECLINED" });
+    return quotePage({ ...quote, status: "DECLINED" }, store);
   }
 
   if (intent !== "accept") {
@@ -736,13 +751,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (quote.status === "CONVERTED") {
     // Already converted: show the existing payment link rather than creating a
     // second draft order for the same quote.
-    return quotePage(quote);
+    return quotePage(quote, store);
   }
 
   // An abandoned attempt has already been released back to QUOTED above; what
   // is left here is a quote that genuinely cannot be accepted.
   if (quote.status !== "QUOTED") {
-    return quotePage(quote);
+    return quotePage(quote, store);
   }
 
   if (!admin) {
@@ -764,7 +779,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (claimed.count === 0) {
     const current = await findQuoteByToken(shop, token);
-    return current ? quotePage(current) : notFoundPage();
+    return current ? quotePage(current, store) : notFoundPage();
   }
 
   // The same engine the merchant's "Convert to order" button uses, including
@@ -836,12 +851,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!result.invoiceUrl) {
     // Converted, but Shopify returned no checkout URL; the merchant can still
     // find the draft order in their admin.
-    return quotePage({
-      ...quote,
-      status: "CONVERTED",
-      draftOrderId: result.draftOrderId,
-      invoiceUrl: null,
-    });
+    return quotePage(
+      {
+        ...quote,
+        status: "CONVERTED",
+        draftOrderId: result.draftOrderId,
+        invoiceUrl: null,
+      },
+      store,
+    );
   }
 
   return redirectToPaymentPage(result.invoiceUrl);

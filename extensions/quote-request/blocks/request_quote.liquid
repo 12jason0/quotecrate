@@ -15,7 +15,45 @@
   if qc_product != blank
     assign qc_has_products = true
   endif
+
+  # Colours. Shopify does not allow a color_scheme setting in an app block
+  # (https://shopify.dev/docs/storefronts/themes/architecture/settings/input-settings),
+  # so the merchant picks a mode instead: keep the app's warm palette, let the
+  # form inherit the theme's own colours, or set a surface and text colour by
+  # hand. "warm" is the default, so an untouched block looks exactly as before.
+  assign qc_color_style = block.settings.color_style | default: 'warm'
+
+  # Normalised to a hex string first: the filters below take one, and this way a
+  # cleared setting and a picked colour both arrive in the same shape.
+  assign qc_accent = block.settings.accent_color | default: '#a4552b' | color_to_hex
+  assign qc_accent_strong = qc_accent | color_darken: 8
+
+  # Whether the button label should be white or near-black. Shopify recommends a
+  # brightness difference of at least 125, so take whichever side of the accent
+  # gives the larger one rather than assuming white survives every colour a
+  # merchant might pick.
+  assign qc_gap_white = qc_accent | brightness_difference: '#ffffff'
+  assign qc_gap_dark = qc_accent | brightness_difference: '#1f1f1f'
+  assign qc_on_accent = '#ffffff'
+  if qc_gap_dark > qc_gap_white
+    assign qc_on_accent = '#1f1f1f'
+  endif
 -%}
+
+{%- comment -%}
+  "theme" and "custom" both derive their greys from the text colour in play, so
+  they share the --adaptive modifier; only "custom" paints a surface of its own.
+{%- endcomment -%}
+{%- capture qc_class -%}
+quotecrate-form
+{%- if qc_color_style == 'theme' %} quotecrate-form--theme quotecrate-form--adaptive{% endif -%}
+{%- if qc_color_style == 'custom' %} quotecrate-form--custom quotecrate-form--adaptive{% endif -%}
+{%- endcapture -%}
+
+{%- capture qc_inline_style -%}
+--qc-accent: {{ qc_accent }}; --qc-accent-strong: {{ qc_accent_strong }}; --qc-on-accent: {{ qc_on_accent }};
+{%- if qc_color_style == 'custom' %} --qc-surface: {{ block.settings.bg_color | default: '#fffdf9' }}; --qc-text: {{ block.settings.text_color | default: '#3b2416' }};{% endif -%}
+{%- endcapture -%}
 
 {%- unless qc_has_products -%}
   {%- comment -%}
@@ -23,17 +61,18 @@
     block, so show a hint there instead of rendering an unusable form.
   {%- endcomment -%}
   {%- if request.design_mode -%}
-    <div class="quotecrate-form quotecrate-form--empty">
+    <div class="{{ qc_class }} quotecrate-form--empty" style="{{ qc_inline_style }}">
       Choose a collection, or a single product, for this block in the theme
       editor to show the quote form.
     </div>
   {%- endif -%}
 {%- else -%}
-  <div class="quotecrate-form" data-quotecrate-block>
+  <div class="{{ qc_class }}" style="{{ qc_inline_style }}" data-quotecrate-block>
     {%- comment -%}
-      Dark header, matching the buyer quote page at
+      In the warm default this is a dark band, matching the buyer quote page at
       app/routes/apps.quotecrate.quote.tsx so a shopper sees one design from
-      request through to acceptance.
+      request through to acceptance. In the theme-matching modes it flattens to
+      a ruled header so it cannot fight the merchant's own section colours.
     {%- endcomment -%}
     <div class="quotecrate-form__header">
       {%- if block.settings.badge != blank -%}
@@ -200,6 +239,43 @@
       "id": "button_label",
       "label": "Button label",
       "default": "Send quote request"
+    },
+    {
+      "type": "header",
+      "content": "Colors"
+    },
+    {
+      "type": "select",
+      "id": "color_style",
+      "label": "Color style",
+      "options": [
+        { "value": "warm", "label": "QuoteCrate warm" },
+        { "value": "theme", "label": "Match my theme" },
+        { "value": "custom", "label": "Custom colors" }
+      ],
+      "default": "warm",
+      "info": "\"Match my theme\" leaves the form unpainted, so it takes the background and text color of the section around it. That is the safest choice on a dark or strongly colored theme."
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Background color",
+      "default": "#fffdf9",
+      "info": "Used only with \"Custom colors\"."
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text color",
+      "default": "#3b2416",
+      "info": "Used only with \"Custom colors\". Pick one with strong contrast against the background above."
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Button and focus color",
+      "default": "#a4552b",
+      "info": "Used in every color style. The button label switches between white and near-black on its own, whichever is easier to read."
     },
     {
       "type": "text",

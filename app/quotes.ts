@@ -231,3 +231,24 @@ export function inputFromMinor(
     currencyDecimals(currency),
   );
 }
+
+/**
+ * The store's name as a buyer should see it.
+ *
+ * `name` is the shop's real, merchant-facing name, read and cached by
+ * shop-name.server.ts. It is optional because the buyer-facing pages have to
+ * render whether or not that lookup has ever succeeded, so a missing name falls
+ * back to the myshopify subdomain — "acme-coffee" for acme-coffee.myshopify.com.
+ * That fallback is a last resort, not the normal path: it is the shop handle,
+ * and a buyer reading it has no reason to recognise it.
+ *
+ * Lives here rather than in a route because both the buyer's quote page and the
+ * "your quote is ready" email name the store, and they must name it the same
+ * way.
+ */
+export function storeName(shop: string, name?: string | null): string {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed;
+
+  return shop.replace(/\.myshopify\.com$/i, "") || shop;
+}

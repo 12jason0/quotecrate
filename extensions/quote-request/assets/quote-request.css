@@ -1,40 +1,129 @@
 /* Storefront quote request block.
  *
- * Same palette as the buyer quote page (app/routes/apps.quotecrate.quote.tsx),
- * so a shopper sees one design from requesting a quote through to accepting it.
+ * This block sits inside someone else's theme, so it owns as little of the
+ * visual language as it can get away with:
+ *   - no font-family anywhere. The typeface is the theme's, always.
+ *   - every colour goes through a custom property scoped to .quotecrate-form,
+ *     so nothing leaks into the theme and the whole palette can be swapped by
+ *     redefining a handful of values.
+ *   - every selector is scoped under .quotecrate-form for the same reason.
  *
- * Two deliberate differences from that page:
- *   - the custom properties are scoped to .quotecrate-form rather than :root,
- *     so they cannot leak into the merchant's theme;
- *   - no font-family is set anywhere. This block sits inside someone else's
- *     theme, and overriding its typeface is what makes an app block look
- *     bolted on. Only colour, spacing and shape are ours.
+ * Three colour modes, chosen by the merchant in the theme editor:
  *
- * Every selector below is scoped under .quotecrate-form for the same reason.
+ *   .quotecrate-form            the warm default below — unchanged from before
+ *                               this file gained modes, so a merchant who never
+ *                               opens the setting sees exactly what they saw.
+ *   .quotecrate-form--theme     transparent surface, text inherited from the
+ *                               theme section. The form takes on whatever the
+ *                               theme puts behind it, light or dark.
+ *   .quotecrate-form--custom    merchant-picked surface and text colours.
+ *
+ * The last two share .quotecrate-form--adaptive, which derives greys, rules and
+ * row tints from `currentColor` instead of hardcoding warm browns — that is what
+ * makes them land correctly on a dark background as well as a light one.
+ *
+ * Shopify does not allow a `color_scheme` setting in an app block
+ * (https://shopify.dev/docs/storefronts/themes/architecture/settings/input-settings),
+ * so inheriting from the section is how this block follows a theme's colours.
  */
 
 .quotecrate-form {
-  --qc-brown: #3b2416;
-  --qc-terracotta: #a4552b;
-  --qc-terracotta-strong: #8b4522;
-  --qc-cream: #fffdf9;
-  --qc-tan: #f6efe3;
+  /* Surfaces */
+  --qc-surface: #fffdf9;
+  --qc-field-bg: #ffffff;
+  --qc-row-bg: #f6efe3;
   --qc-line: #ecdfcb;
-  --qc-muted: #a08a72;
-  --qc-muted-strong: #8a7458;
+  /* Field borders are a UI boundary rather than decoration, so the adaptive
+     modes give them their own, stronger value. In the warm default they stay
+     the same rule colour they always were. */
+  --qc-field-border: #ecdfcb;
+
+  /* Text */
+  --qc-text: #3b2416;
+  --qc-muted: #786651;
+  --qc-muted-strong: #665541;
+
+  /* Header band */
+  --qc-header-bg: #3b2416;
+  --qc-header-text: #ffffff;
+  --qc-header-muted: rgba(255, 255, 255, 0.74);
+  --qc-header-rule: transparent;
+  --qc-badge-bg: rgba(255, 255, 255, 0.13);
+  --qc-badge-border: rgba(255, 255, 255, 0.22);
+
+  /* Accent. Overridden inline from the block's colour setting, along with
+     --qc-on-accent, which the Liquid picks for legibility against it. */
+  --qc-accent: #a4552b;
+  --qc-accent-strong: #8b4522;
+  --qc-on-accent: #ffffff;
+
   --qc-card-radius: 22px;
   --qc-field-radius: 12px;
   --qc-button-radius: 14px;
 
   margin: 1.5rem 0;
-  background: var(--qc-cream);
+  background: var(--qc-surface);
   border: 1px solid var(--qc-line);
   border-radius: var(--qc-card-radius);
   box-shadow: 0 1px 2px rgba(59, 36, 22, 0.05), 0 8px 26px rgba(59, 36, 22, 0.07);
   overflow: hidden;
-  color: var(--qc-brown);
+  color: var(--qc-text);
   font-size: 0.95rem;
   line-height: 1.55;
+}
+
+/* Adaptive modes.
+ *
+ * Text is deliberately NOT faded here. The warm palette can afford muted greys
+ * because its background is known and the pair was measured; against an unknown
+ * theme it cannot. Fading text to 78% of the theme's own colour needs that theme
+ * to run about 8:1 on body copy before the result still clears 4.5:1 — plenty of
+ * themes do not. So in these modes the "muted" text is the theme's own text
+ * colour at full strength, which can never read worse than the theme itself, and
+ * the hierarchy is carried by size and weight instead.
+ *
+ * Only decoration is mixed down, and each mix has a plain fallback first for
+ * browsers without color-mix(). */
+.quotecrate-form--adaptive {
+  --qc-field-bg: transparent;
+  --qc-row-bg: transparent;
+  --qc-line: currentColor;
+  --qc-field-border: currentColor;
+  --qc-muted: currentColor;
+  --qc-muted-strong: currentColor;
+
+  --qc-header-bg: transparent;
+  --qc-header-text: currentColor;
+  --qc-header-muted: currentColor;
+  --qc-header-rule: currentColor;
+  --qc-badge-bg: transparent;
+  --qc-badge-border: currentColor;
+}
+
+@supports (color: color-mix(in srgb, currentColor 50%, transparent)) {
+  .quotecrate-form--adaptive {
+    /* Decorative rules and tints: no contrast floor applies to these. */
+    --qc-line: color-mix(in srgb, currentColor 24%, transparent);
+    --qc-row-bg: color-mix(in srgb, currentColor 7%, transparent);
+    --qc-header-rule: color-mix(in srgb, currentColor 24%, transparent);
+    --qc-badge-bg: color-mix(in srgb, currentColor 10%, transparent);
+    --qc-badge-border: color-mix(in srgb, currentColor 26%, transparent);
+
+    /* An input's edge is a UI component boundary, which WCAG 1.4.11 holds to
+       3:1, so it is mixed far less than the decorative rules above. */
+    --qc-field-border: color-mix(in srgb, currentColor 60%, transparent);
+  }
+}
+
+/* "Match my theme": paint nothing, so the section's own background shows
+   through and the text is whatever the theme set. The warm drop shadow would
+   read as a smudge on a dark section, so it goes. */
+.quotecrate-form--theme {
+  --qc-surface: transparent;
+  --qc-text: currentColor;
+
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Theme-editor placeholder: the only variant without the header/body split, so
@@ -48,17 +137,23 @@
 /* Header */
 
 .quotecrate-form__header {
-  background: var(--qc-brown);
-  color: #ffffff;
+  background: var(--qc-header-bg);
+  color: var(--qc-header-text);
   padding: 1.5rem 1.6rem 1.6rem;
+}
+
+/* Without the dark band there is nothing separating the header from the fields,
+   so the adaptive modes get a rule instead. */
+.quotecrate-form--adaptive .quotecrate-form__header {
+  border-bottom: 1px solid var(--qc-header-rule);
 }
 
 .quotecrate-form__badge {
   display: inline-block;
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.13);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: var(--qc-badge-bg);
+  border: 1px solid var(--qc-badge-border);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -68,13 +163,13 @@
   margin: 0.7rem 0 0.4rem;
   font-size: 1.45rem;
   line-height: 1.2;
-  color: #ffffff;
+  color: var(--qc-header-text);
 }
 
 .quotecrate-form__description {
   margin: 0;
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.74);
+  color: var(--qc-header-muted);
 }
 
 /* Body */
@@ -110,18 +205,18 @@
 .quotecrate-form__field textarea {
   width: 100%;
   padding: 0.65rem 0.8rem;
-  border: 1px solid var(--qc-line);
+  border: 1px solid var(--qc-field-border);
   border-radius: var(--qc-field-radius);
   font: inherit;
-  color: var(--qc-brown);
-  background: #ffffff;
+  color: var(--qc-text);
+  background: var(--qc-field-bg);
   box-sizing: border-box;
 }
 
 .quotecrate-form__field input:focus,
 .quotecrate-form__field textarea:focus,
 .quotecrate-form__qty input:focus {
-  outline: 2px solid var(--qc-terracotta);
+  outline: 2px solid var(--qc-accent);
   outline-offset: 1px;
   border-color: transparent;
 }
@@ -161,8 +256,14 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.9rem 1rem;
-  background: var(--qc-tan);
+  background: var(--qc-row-bg);
   border-radius: var(--qc-field-radius);
+}
+
+/* The tint that separates a row from the card is barely there in adaptive mode,
+   and absent entirely without color-mix(), so the row carries a border too. */
+.quotecrate-form--adaptive .quotecrate-form__item {
+  border: 1px solid var(--qc-line);
 }
 
 .quotecrate-form__item-info {
@@ -196,11 +297,11 @@
 .quotecrate-form__qty input {
   width: 5rem;
   padding: 0.5rem 0.6rem;
-  border: 1px solid var(--qc-line);
+  border: 1px solid var(--qc-field-border);
   border-radius: 10px;
   font: inherit;
-  color: var(--qc-brown);
-  background: #ffffff;
+  color: var(--qc-text);
+  background: var(--qc-field-bg);
   text-align: center;
   box-sizing: border-box;
 }
@@ -218,13 +319,12 @@
   font-weight: 700;
   font-size: 1.02rem;
   cursor: pointer;
-  background: var(--qc-terracotta);
-  color: #ffffff;
-  box-shadow: 0 2px 10px rgba(164, 85, 43, 0.26);
+  background: var(--qc-accent);
+  color: var(--qc-on-accent);
 }
 
 .quotecrate-form__submit:hover {
-  background: var(--qc-terracotta-strong);
+  background: var(--qc-accent-strong);
 }
 
 .quotecrate-form__submit:disabled {
@@ -248,8 +348,11 @@
   color: var(--qc-muted-strong);
 }
 
-/* Result message */
-
+/* Result message.
+ *
+ * Deliberately not themed: success and failure have to read as success and
+ * failure regardless of what the merchant picked, and each pair clears WCAG AA
+ * against its own background. */
 .quotecrate-form__message {
   margin: 0.9rem 0 0;
   padding: 0.75rem 0.9rem;

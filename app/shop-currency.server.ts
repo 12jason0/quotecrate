@@ -116,8 +116,8 @@ async function rememberShopCurrency(shop: string, currency: string) {
   try {
     await prisma.shopSetting.upsert({
       where: { shop },
-      create: { shop, currency },
-      update: { currency },
+      create: { shop, currency, currencyUpdatedAt: new Date() },
+      update: { currency, currencyUpdatedAt: new Date() },
     });
   } catch (error) {
     // The cache is an optimisation; failing to write it must not fail the
@@ -141,9 +141,16 @@ export async function shopCurrency(
   shop: string,
   { admin }: { admin?: AdminApiContext } = {},
 ): Promise<string | null> {
-  let cached: { currency: string; updatedAt: Date } | null = null;
+  let cached: { currency: string; currencyUpdatedAt: Date } | null = null;
   try {
-    cached = await prisma.shopSetting.findUnique({ where: { shop } });
+    // Freshness comes from `currencyUpdatedAt`, not the row's `updatedAt`: the
+    // row also caches the shop name now, and `@updatedAt` bumps on any write, so
+    // reading the row's timestamp would let a name refresh mark the currency
+    // fresh and stop it from ever being re-read.
+    cached = await prisma.shopSetting.findUnique({
+      where: { shop },
+      select: { currency: true, currencyUpdatedAt: true },
+    });
   } catch (error) {
     console.warn(
       `[quotecrate] Could not read the cached shop currency for ${shop}.`,
@@ -151,7 +158,10 @@ export async function shopCurrency(
     );
   }
 
-  if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_MAX_AGE_MS) {
+  if (
+    cached &&
+    Date.now() - cached.currencyUpdatedAt.getTime() < CACHE_MAX_AGE_MS
+  ) {
     return cached.currency;
   }
 
