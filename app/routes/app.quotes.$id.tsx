@@ -58,6 +58,16 @@ const SEND_REFUSAL: Record<string, string> = {
 };
 
 /**
+ * Ceiling on the merchant's note to the customer.
+ *
+ * The same 2000 characters the storefront endpoint caps the buyer's own note at
+ * (LIMITS.note in apps.quotecrate.quote-request.tsx), so the two free-text
+ * fields on a quote hold the same amount and neither can be used to push an
+ * unbounded string into the database.
+ */
+const SELLER_NOTE_MAX_LENGTH = 2000;
+
+/**
  * Same parse as the server, but for the live preview only, so a half-typed
  * value contributes nothing instead of throwing while the merchant is still
  * mid-keystroke. The server re-parses and reports the real error on submit.
@@ -118,6 +128,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       status: quote.status,
       currency: quote.currency,
       note: quote.note,
+      sellerNote: quote.sellerNote,
       // Money columns are BigInt, and bigint cannot be serialised into the
       // loader payload, so they cross back to number here.
       quotedTotalMinor: minorToNumber(quote.quotedTotalMinor),
@@ -284,6 +295,22 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: "No pricing information was submitted." };
   }
 
+  // The merchant's note to the customer, which rides along with the pricing
+  // because it is written in the same form and has to be saved by the same
+  // click that sends the quote.
+  //
+  // Absent — rather than empty — means the submission did not carry the field at
+  // all, which is what a tab left open from before this feature posts. That has
+  // to leave the stored note alone; treating it as a clear would silently wipe a
+  // note the merchant never touched. An empty string, on the other hand, is the
+  // merchant emptying the box on purpose, and is stored as null so the buyer's
+  // page hides the block again.
+  const rawSellerNote = formData.get("sellerNote");
+  const sellerNoteSubmitted = typeof rawSellerNote === "string";
+  const sellerNote = sellerNoteSubmitted
+    ? rawSellerNote.trim().slice(0, SELLER_NOTE_MAX_LENGTH) || null
+    : null;
+
   // Parsed defensively: this is a form field, so a truncated submit or a stale
   // client can deliver something that is not JSON at all. Left unguarded it
   // threw and the merchant got a 500 instead of a banner telling them nothing
@@ -384,6 +411,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         quotedTotalMinor: BigInt(totalMinor),
         status: "QUOTED",
         publicToken,
+        ...(sellerNoteSubmitted ? { sellerNote } : {}),
       },
     });
 
@@ -414,6 +442,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     shop: session.shop,
     admin,
     quote,
+    // The note as it stands after this send, not as it was read at the top of
+    // the action: the merchant just typed it, so the email has to carry the new
+    // one. Falls back to the stored note when the submission carried no field.
+    sellerNote: sellerNoteSubmitted ? sellerNote : quote.sellerNote,
     unitPriceMinorById: byId,
     totalMinor,
     quoteUrl,
@@ -441,6 +473,10 @@ export default function QuoteDetail() {
       ]),
     ),
   );
+
+  // The merchant's note to the customer, seeded from whatever was saved last so
+  // a re-price edits the existing note rather than starting from a blank box.
+  const [sellerNote, setSellerNote] = useState(quote.sellerNote ?? "");
 
   // Which button was pressed last, so the error banner can name the operation
   // that actually failed.
@@ -564,7 +600,8 @@ export default function QuoteDetail() {
     fetcher.submit({ intent, ...body }, { method: "POST" });
   };
 
-  const send = () => submit("send", { prices: JSON.stringify(prices) });
+  const send = () =>
+    submit("send", { prices: JSON.stringify(prices), sellerNote });
 
   const convert = () => submit("convert", {});
 
@@ -846,6 +883,30 @@ export default function QuoteDetail() {
               {formatMoney(runningTotalMinor, quote.currency)}
             </s-heading>
           </s-stack>
+
+          <s-divider />
+
+          {/*
+            Saved by the same click that saves the prices, so the note the
+            customer reads and the prices they read always come from one
+            submission. Editable from QUOTED as well as REQUESTED — a re-price
+            is exactly when a merchant needs to explain what changed.
+          */}
+          <s-text-area
+            label="Note to the customer (optional)"
+            value={sellerNote}
+            rows={4}
+            maxLength={SELLER_NOTE_MAX_LENGTH}
+            readOnly={!canSend}
+            details={
+              canSend
+                ? "Shown to the customer on their quote page and in the email. Leave it blank to show nothing."
+                : "This quote can no longer be changed, so the note is read-only."
+            }
+            onInput={(event: Event) =>
+              setSellerNote((event.target as HTMLTextAreaElement).value)
+            }
+          />
         </s-stack>
       </s-section>
 
@@ -882,8 +943,14 @@ export default function QuoteDetail() {
         </s-stack>
       </s-section>
 
+      {/*
+        The buyer's own words, from the storefront request form. Headed by who
+        wrote it: the page now carries two notes going in opposite directions,
+        and a bare "Note" beside the merchant's own box is exactly the confusion
+        that let the buyer's note be shown back to them as the store's.
+      */}
       {quote.note && (
-        <s-section slot="aside" heading="Note">
+        <s-section slot="aside" heading="Customer's note">
           <s-paragraph>{quote.note}</s-paragraph>
         </s-section>
       )}

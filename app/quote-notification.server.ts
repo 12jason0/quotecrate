@@ -103,7 +103,11 @@ export function buildQuoteRequestEmail(notification: QuoteNotification): {
     : `<p style="margin:24px 0 0;">Open your dashboard to price and send the quote.</p>`;
 
   const html = `<!doctype html>
-<html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
   <body style="margin:0;padding:24px;background:#f1f1f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#303030;">
     <div style="max-width:560px;margin:0 auto;padding:24px;background:#ffffff;border-radius:12px;">
       <h1 style="margin:0 0 16px;font-size:18px;">New quote request</h1>

@@ -81,7 +81,17 @@ model Quote {
   // String rather than enum because SQLite has no native enum type.
   status        String   @default("REQUESTED")
   currency      String   @default("USD")
+  // What the buyer wrote for the merchant when they asked for the quote.
+  // Storefront input, capped at 2000 characters by the request endpoint.
   note          String?
+  // What the merchant writes back to the buyer when they price the quote —
+  // "these are ex-VAT", "the blue one is on a four week lead time". Deliberately
+  // a second column rather than a reuse of `note`: the two are written by
+  // different people to different audiences, and the buyer's quote page used to
+  // render `note` under a "Note from the store" heading, showing the buyer their
+  // own words back as if the shop had said them. Null until the merchant writes
+  // one, and the buyer-facing block stays hidden while it is.
+  sellerNote    String?
   // Whole minor units of `currency` — won for KRW, cents for USD, fils for
   // BHD. The scale is the currency's own (see currencyDecimals in app/quotes.ts),
   // never a fixed 100. BigInt rather than Int so a large total has room even in

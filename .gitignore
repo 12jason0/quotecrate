@@ -30,3 +30,6 @@ database.sqlite
 .react-router/
 # Machine-local Claude Code permissions, not shared
 .claude/settings.local.json
+
+# Local visual previews of the buyer-facing screens (generated, never shipped).
+preview/

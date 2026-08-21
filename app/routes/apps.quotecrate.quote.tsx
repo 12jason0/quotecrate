@@ -758,10 +758,15 @@ function quotePage(
     escapeHtml(formatDate(quote.createdAt)),
   ].join(" &middot; ");
 
-  const sellerNote = quote.note
+  // `sellerNote`, never `note`. This block used to render `quote.note` — the
+  // buyer's own request note — under a "Note from the store" heading, so the
+  // buyer was shown their own words back as if the shop had written them. The
+  // buyer's note belongs to the merchant's screen alone; this is the merchant's
+  // reply, and the block stays out of the page entirely when there isn't one.
+  const sellerNote = quote.sellerNote
     ? `<blockquote class="seller-note">
          <span class="seller-note__label">Note from the store</span>
-         <span class="seller-note__text">${escapeHtml(quote.note)}</span>
+         <span class="seller-note__text">${escapeHtml(quote.sellerNote)}</span>
        </blockquote>`
     : "";
 
