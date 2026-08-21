@@ -32,6 +32,26 @@ api_version = "2026-10"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
+  # The three mandatory privacy webhooks every public app has to answer before
+  # it can be submitted. They use `compliance_topics`, not `topics` — Shopify
+  # treats them as a separate class and rejects them under the ordinary key.
+  # https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
+
+  # Handled by: app/routes/webhooks.customers.data_request.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  # Handled by: app/routes/webhooks.customers.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  # Handled by: app/routes/webhooks.shop.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
 [auth]
 # The OAuth callback this app actually serves.
 #
