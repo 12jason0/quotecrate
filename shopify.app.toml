@@ -33,7 +33,16 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://quotecrate-production.up.railway.app/api/auth" ]
+# The OAuth callback this app actually serves.
+#
+# shopifyApp() derives it as `${authPathPrefix}/callback`, and
+# app/shopify.server.ts sets authPathPrefix to "/auth", so the only path
+# Shopify may redirect back to is /auth/callback — served by the splat route
+# app/routes/auth.$.tsx. The "/api/auth" that stood here came from the
+# template placeholder and matches no route in this app, so every OAuth
+# round trip (a fresh install, or a re-auth after the offline token
+# expires) was refused by Shopify as an unwhitelisted redirect_uri.
+redirect_urls = [ "https://quotecrate-production.up.railway.app/auth/callback" ]
 
 [build]
 automatically_update_urls_on_dev = true
