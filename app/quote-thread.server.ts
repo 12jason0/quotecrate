@@ -19,15 +19,10 @@ import { createHash } from "node:crypto";
 import { Prisma, type QuoteMessageAuthor } from "@prisma/client";
 
 import prisma from "./db.server";
-
-/**
- * Ceiling on one message.
- *
- * The same 2000 characters the storefront request endpoint caps the buyer's
- * opening note at (LIMITS.note in apps.quotecrate.quote-request.tsx), so every
- * free-text field on a quote holds the same amount.
- */
-export const MESSAGE_MAX_LENGTH = 2000;
+// Deliberately not re-exported from here: the pages that render it as a
+// maxLength are client components, and re-exporting would put this module back
+// in their import graph — the very thing that broke the build.
+import { MESSAGE_MAX_LENGTH } from "./quotes";
 
 /**
  * How long an identical message from the same side counts as a resend of the

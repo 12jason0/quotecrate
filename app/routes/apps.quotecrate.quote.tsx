@@ -24,7 +24,6 @@ import prisma from "../db.server";
 import { notifyMerchantOfMessage } from "../quote-message-notify.server";
 import { reviveStuckAccepted } from "../quote-recovery.server";
 import {
-  MESSAGE_MAX_LENGTH,
   appendMessage,
   buildThread,
   readMessageBody,
@@ -41,6 +40,7 @@ import {
   formatDateTime,
   formatMoney,
   storeName,
+  MESSAGE_MAX_LENGTH,
 } from "../quotes";
 
 const TOKEN_MAX_LENGTH = 200;

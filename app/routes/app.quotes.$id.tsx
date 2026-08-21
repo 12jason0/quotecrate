@@ -25,12 +25,12 @@ import {
   statusLabel,
   statusTone,
   storeName,
+  MESSAGE_MAX_LENGTH,
 } from "../quotes";
 import { customerQuoteUrl, newPublicToken } from "../public-token.server";
 import { notifyCustomerOfMessage } from "../quote-message-notify.server";
 import { emailQuoteToCustomer } from "../quote-ready.server";
 import {
-  MESSAGE_MAX_LENGTH,
   appendMessage,
   buildThread,
   readMessages,

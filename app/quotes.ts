@@ -179,6 +179,24 @@ export function formatMoney(
   }).format(minor / minorUnitFactor(currency));
 }
 
+/**
+ * Ceiling on one message in a quote's conversation.
+ *
+ * Lives here rather than in quote-thread.server.ts because both the merchant's
+ * textarea and the buyer's reply box render it as a `maxLength`, and the
+ * merchant's page is a React component: importing it from a `.server` module
+ * pulled that module into the client bundle and failed the production build
+ * with "Server-only module referenced by client". React Router only strips
+ * server code from `loader`, `action`, `middleware` and `headers`, so anything
+ * a component touches has to come from a module with no server dependencies —
+ * which is exactly what this file is.
+ *
+ * The same 2000 characters the storefront request endpoint caps the buyer's
+ * opening note at (LIMITS.note in apps.quotecrate.quote-request.tsx), so every
+ * free-text field on a quote holds the same amount.
+ */
+export const MESSAGE_MAX_LENGTH = 2000;
+
 export function formatDate(date: Date): string {
   return new Intl.DateTimeFormat(MONEY_LOCALE, {
     year: "numeric",
