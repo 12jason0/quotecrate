@@ -5,6 +5,17 @@ application_url = "https://quotecrate-production.up.railway.app"
 embedded = true
 name = "quotecrate"
 
+# The URL slug of App Home — the app is reached at
+# https://admin.shopify.com/store/{store}/apps/quotecrate.
+#
+# Optional, and left unset until now, which meant two things depended on a
+# fallback instead of a fact: the admin deep link in the merchant notification
+# email fell back to the client id (app/quote-notification.server.ts), and the
+# Shopify App Pricing plan selection page — .../charges/{handle}/pricing_plans —
+# had no handle to build a URL from at all. Pinned here so both read the same
+# value the dev store already serves the app under.
+handle = "quotecrate"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # write_draft_orders is required by the draftOrderCreate mutation used to turn a
