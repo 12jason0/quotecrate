@@ -143,7 +143,7 @@ export function buildQuoteRequestEmail(notification: QuoteNotification): {
  * is the testing path. Leaving it unset is the production behaviour: the mail
  * goes to the shop owner's own address.
  */
-async function resolveRecipient(shop: string): Promise<string | null> {
+export async function resolveRecipient(shop: string): Promise<string | null> {
   const override = process.env.QUOTE_NOTIFY_TO?.trim();
   if (override) return override;
 

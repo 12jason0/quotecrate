@@ -21,7 +21,14 @@ import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
 import prisma from "../db.server";
+import { notifyMerchantOfMessage } from "../quote-message-notify.server";
 import { reviveStuckAccepted } from "../quote-recovery.server";
+import {
+  MESSAGE_MAX_LENGTH,
+  appendMessage,
+  buildThread,
+  readMessageBody,
+} from "../quote-thread.server";
 import { shopProfile } from "../shop-profile.server";
 import { authenticate } from "../shopify.server";
 import {
@@ -31,6 +38,7 @@ import {
 import {
   minorToNumber,
   formatDate,
+  formatDateTime,
   formatMoney,
   storeName,
 } from "../quotes";
@@ -48,7 +56,13 @@ type QuoteWithItems = NonNullable<
 async function findQuoteByToken(shop: string, token: string) {
   return prisma.quote.findFirst({
     where: { shop, publicToken: token },
-    include: { items: { orderBy: { title: "asc" } } },
+    include: {
+      items: { orderBy: { title: "asc" } },
+      // Read with the quote rather than separately: every page this route
+      // renders shows the conversation, so there is no branch that would pay
+      // for a query it does not use.
+      messages: { orderBy: { createdAt: "asc" } },
+    },
   });
 }
 
@@ -207,29 +221,95 @@ const STYLES = `
     color: var(--qc-muted);
   }
 
-  /* 5. Seller note */
-  .seller-note {
-    margin: 24px 0 0;
-    padding: 16px 18px;
-    border-left: 3px solid var(--qc-rule);
-    background: var(--qc-total-bg);
-    border-radius: 0 14px 14px 0;
-    font-style: italic;
-    color: var(--qc-muted-strong);
+  /* 5. Conversation */
+  .thread { margin: 26px 0 0; }
+  .thread__heading {
+    font-family: var(--qc-heading-font);
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0 0 14px;
   }
-  .seller-note__label {
-    display: block;
-    font-style: normal;
+  .thread__list { list-style: none; margin: 0; padding: 0; }
+  .msgbubble {
+    margin: 0 0 12px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: var(--qc-total-bg);
+    /* The store's side gets the accent edge; the buyer's own messages are
+       flush, so a glance down the thread tells the two apart before a word of
+       either is read. */
+    border-left: 3px solid var(--qc-rule);
+  }
+  .msgbubble--merchant { border-left-color: var(--qc-accent); }
+  .msgbubble--customer {
+    background: none;
+    border-left-color: var(--qc-border-strong);
+  }
+  .msgbubble__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0 0 7px;
+  }
+  .msgbubble__who {
     font-size: 12.5px;
     font-weight: 700;
     letter-spacing: .05em;
     text-transform: uppercase;
     color: var(--qc-muted);
-    margin-bottom: 7px;
   }
-  /* pre-wrap is scoped to the note text alone: on the blockquote it would also
-     preserve the template's own indentation and render it as a stray indent. */
-  .seller-note__text { display: block; white-space: pre-wrap; }
+  .msgbubble__when { font-size: 12.5px; color: var(--qc-muted); }
+  /* pre-wrap is scoped to the body alone: on the bubble it would also preserve
+     the template's own indentation and render it as a stray indent. */
+  .msgbubble__body {
+    margin: 0;
+    white-space: pre-wrap;
+    color: var(--qc-muted-strong);
+  }
+
+  /* Reply box. A plain form, so it works with JavaScript off. */
+  .reply { margin: 18px 0 0; }
+  .reply__label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  .reply__field {
+    display: block;
+    width: 100%;
+    font: inherit;
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: var(--qc-button-radius);
+    border: 1px solid var(--qc-border-strong);
+    background: var(--qc-surface);
+    color: var(--qc-text);
+    resize: vertical;
+  }
+  .reply__field:focus {
+    outline: 2px solid var(--qc-accent);
+    outline-offset: 1px;
+  }
+  .btn--reply {
+    background: none;
+    color: var(--qc-text);
+    border: 1px solid var(--qc-border-strong);
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  .btn--reply:hover { border-color: var(--qc-text); }
+  .reply__hint { margin: 8px 2px 0; font-size: 13px; color: var(--qc-muted); }
+  .reply__sent {
+    margin: 0 0 14px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: var(--qc-total-bg);
+    font-size: 14px;
+    color: var(--qc-muted-strong);
+  }
 
   /* 6. Decision */
   .decision { margin-top: 28px; }
@@ -672,6 +752,99 @@ function declineConfirmForm(token: string): string {
 }
 
 /**
+ * What just happened to a reply the buyer submitted, when one did.
+ *
+ * "throttled" is the only refusal the buyer can see, and it is deliberately
+ * visible: their message is not on the thread, so saying nothing would leave
+ * them believing it was.
+ */
+type MessageOutcome = "sent" | "throttled";
+
+/**
+ * The conversation, oldest first, with the reply box under it.
+ *
+ * Shown in every status, and the reply box with it. A CONVERTED quote has a real
+ * order behind it that the buyer may have a question about; a DECLINED or
+ * EXPIRED one is exactly where "could you send me a revised quote?" belongs —
+ * the status messages below have always told the buyer to contact the store in
+ * those states, and this is finally what they contact it *with*. Only the
+ * *decision* is terminal; talking never is.
+ *
+ * The buyer's original request note is the first entry, merged in by buildThread
+ * rather than stored twice. Their own messages are labelled "You", so nobody is
+ * ever shown their own words as if the shop had said them.
+ */
+function threadSection(
+  quote: QuoteWithItems,
+  store: StoreContext,
+  outcome?: MessageOutcome,
+): string {
+  const messages = buildThread(quote, quote.messages);
+
+  const merchantLabel = store.name
+    ? `Note from ${escapeHtml(store.name)}`
+    : "Note from the store";
+
+  const bubbles = messages
+    .map((message) => {
+      const merchant = message.author === "MERCHANT";
+
+      return `<li class="msgbubble msgbubble--${merchant ? "merchant" : "customer"}">
+        <p class="msgbubble__meta">
+          <span class="msgbubble__who">${merchant ? merchantLabel : "You"}</span>
+          <span class="msgbubble__when">${escapeHtml(
+            formatDateTime(message.createdAt),
+          )}</span>
+        </p>
+        <p class="msgbubble__body">${escapeHtml(message.body)}</p>
+      </li>`;
+    })
+    .join("");
+
+  const safeToken = escapeHtml(quote.publicToken ?? "");
+
+  // A plain POST with no action attribute goes back to the current URL, which
+  // still carries Shopify's signature — the same reason the decline steps are
+  // forms rather than links, and what makes the whole exchange work with
+  // JavaScript turned off. `data-once` only disables the buttons when scripting
+  // happens to be on; the server's own duplicate window is what actually stops a
+  // double submit.
+  const replyForm = `<form class="reply" method="post" data-once>
+      <input type="hidden" name="token" value="${safeToken}">
+      <input type="hidden" name="intent" value="message">
+      <label class="reply__label" for="qc-reply">Reply to the store</label>
+      <textarea
+        class="reply__field"
+        id="qc-reply"
+        name="body"
+        rows="4"
+        maxlength="${MESSAGE_MAX_LENGTH}"
+        placeholder="Ask a question about this quote…"
+      ></textarea>
+      <button type="submit" class="btn btn--reply">Send message</button>
+      <p class="reply__hint">
+        The store is emailed your message and can reply here.
+      </p>
+    </form>`;
+
+  return `<section class="thread divider-top">
+    <h2 class="thread__heading">Conversation</h2>
+    ${
+      outcome === "sent"
+        ? `<p class="reply__sent">Your message has been sent to the store.</p>`
+        : outcome === "throttled"
+          ? `<p class="reply__sent">
+               You&rsquo;ve sent several messages in the last few minutes, so
+               this one wasn&rsquo;t added. Give the store a moment to reply.
+             </p>`
+          : ""
+    }
+    ${bubbles ? `<ul class="thread__list">${bubbles}</ul>` : ""}
+    ${replyForm}
+  </section>`;
+}
+
+/**
  * The status-specific message under the line items. Everything that is not
  * QUOTED is terminal from the buyer's side, so each case explains what happened
  * instead of offering an action that would be rejected anyway.
@@ -748,7 +921,13 @@ function statusMessage(quote: QuoteWithItems, store: StoreContext): string {
 function quotePage(
   quote: QuoteWithItems,
   store: StoreContext,
-  { confirmingDecline = false }: { confirmingDecline?: boolean } = {},
+  {
+    confirmingDecline = false,
+    messageOutcome,
+  }: {
+    confirmingDecline?: boolean;
+    messageOutcome?: MessageOutcome;
+  } = {},
 ): Response {
   const { badge, title } = heroCopy(quote.status);
 
@@ -757,18 +936,6 @@ function quotePage(
     `#${escapeHtml(quoteNumber(quote.id))}`,
     escapeHtml(formatDate(quote.createdAt)),
   ].join(" &middot; ");
-
-  // `sellerNote`, never `note`. This block used to render `quote.note` — the
-  // buyer's own request note — under a "Note from the store" heading, so the
-  // buyer was shown their own words back as if the shop had written them. The
-  // buyer's note belongs to the merchant's screen alone; this is the merchant's
-  // reply, and the block stays out of the page entirely when there isn't one.
-  const sellerNote = quote.sellerNote
-    ? `<blockquote class="seller-note">
-         <span class="seller-note__label">Note from the store</span>
-         <span class="seller-note__text">${escapeHtml(quote.sellerNote)}</span>
-       </blockquote>`
-    : "";
 
   // QUOTED is the only state that offers a decision; every other state explains
   // itself instead, below the same line items so the buyer can still see what
@@ -780,14 +947,19 @@ function quotePage(
         : decisionForm(quote.publicToken ?? "")
       : `<div class="divider-top">${statusMessage(quote, store)}</div>`;
 
+  // The conversation sits below the decision, not above it: the buyer came here
+  // to accept or decline, and burying that under a thread would make the page
+  // about the correspondence instead of the quote. It is deliberately *not*
+  // hidden while the decline confirmation is up — the buyer stepping back from
+  // "yes, decline" to ask a question first is the best outcome on that screen.
   const body = shell({
     badge,
     title,
     meta,
     body: `${itemsList(quote)}
       ${totalsBox(quote)}
-      ${sellerNote}
-      ${footer}`,
+      ${footer}
+      ${threadSection(quote, store, messageOutcome)}`,
   });
 
   return page("Your quote", body);
@@ -895,6 +1067,52 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Same recovery the loader performs, repeated here so a form posted from a
   // page that was rendered before the release still goes through.
   const quote = await reviveStuckAccepted(found);
+
+  if (intent === "message") {
+    const body = readMessageBody(formData.get("body"));
+
+    // An empty submit is the buyer pressing Send on an empty box. Nothing is
+    // written and nothing is claimed — the page simply comes back as it was.
+    if (!body) return quotePage(quote, store);
+
+    const appended = await appendMessage({
+      quoteId: quote.id,
+      shop,
+      author: "CUSTOMER",
+      body,
+    });
+
+    // Only a message that was really stored is notified, so one stored message
+    // is one email. A duplicate is the buyer's double submit or a reloaded POST;
+    // their message is already on the thread and the merchant has already been
+    // told, so a second mail would be noise.
+    //
+    // Awaited rather than fired and forgotten: it never throws, and letting the
+    // response race it would risk the process finishing the request first.
+    if (appended.status === "created") {
+      await notifyMerchantOfMessage({
+        shop,
+        quoteId: quote.id,
+        customerName: quote.customerName,
+        customerEmail: quote.customerEmail,
+        body: appended.message.body,
+      });
+    }
+
+    // Re-read so the buyer's own message is on the page that comes back: the
+    // row loaded at the top of this action predates the append.
+    const current = await findQuoteByToken(shop, token);
+    if (!current) return notFoundPage(store);
+
+    // "Sent to the store" is claimed only when the message is genuinely on the
+    // thread, which is what the merchant reads on their own dashboard — the
+    // email is a nudge on top of that, so a mail failure does not make the
+    // sentence untrue. A rate-limited message is not on the thread, so it gets
+    // the truth instead.
+    return quotePage(current, store, {
+      messageOutcome: appended.status === "rate-limited" ? "throttled" : "sent",
+    });
+  }
 
   if (intent === "decline") {
     // The first click only asks. Nothing is written here — the quote is still

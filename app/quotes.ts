@@ -188,6 +188,27 @@ export function formatDate(date: Date): string {
 }
 
 /**
+ * Date *and* time, for the quote conversation.
+ *
+ * A thread is read as a sequence — "they answered this two hours after I asked"
+ * — and a date alone collapses a whole day of back-and-forth into one label
+ * repeated on every message. Rendered in UTC and said so, because the server has
+ * no idea what timezone either party is in and a bare time that is silently
+ * three hours off is worse than an explicit one that is honest.
+ */
+export function formatDateTime(date: Date): string {
+  return new Intl.DateTimeFormat(MONEY_LOCALE, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+/**
  * A plain decimal amount. Deliberately strict: no exponent form, no hex, no
  * sign, no separators — `Number()` would have accepted "1e3" and "0x1A" and
  * turned a typo into a silently different price.

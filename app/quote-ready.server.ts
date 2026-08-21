@@ -19,7 +19,7 @@ import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import { Resend } from "resend";
 
 import prisma from "./db.server";
-import { escapeHtml, escapeMultiline } from "./escape-html";
+import { escapeHtml } from "./escape-html";
 import { formatMoney, storeName } from "./quotes";
 import { shopProfile } from "./shop-profile.server";
 
@@ -41,15 +41,6 @@ export type QuoteReadyEmail = {
   totalMinor: number;
   /** The buyer's own quote page — where "View & accept" goes. */
   quoteUrl: string;
-  /**
-   * What the merchant wrote to this buyer when they priced the quote, or null
-   * when they wrote nothing — in which case the email carries no note block at
-   * all rather than an empty one.
-   *
-   * Never the buyer's own request note: that one is written *to* the merchant
-   * and mailing it back would be quoting the buyer to themselves.
-   */
-  sellerNote: string | null;
   items: QuoteReadyItem[];
 };
 
@@ -94,26 +85,8 @@ export function buildQuoteReadyEmail(email: QuoteReadyEmail): {
   subject: string;
   html: string;
 } {
-  const {
-    storeName,
-    customerName,
-    currency,
-    totalMinor,
-    quoteUrl,
-    sellerNote,
-    items,
-  } = email;
-
-  // Free text the merchant typed, so it is escaped, and its line breaks are
-  // turned into <br /> — an email client has no pre-wrap to fall back on, so
-  // without this a note written as several paragraphs arrives as one run-on
-  // sentence.
-  const noteBlock = sellerNote
-    ? `<div style="margin:20px 0 0;padding:14px 16px;border-left:3px solid #e3e3e3;background:#f7f7f7;border-radius:0 8px 8px 0;">
-        <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#616161;">Note from ${escapeHtml(storeName)}</p>
-        <p style="margin:0;font-size:14px;color:#4a4a4a;">${escapeMultiline(sellerNote)}</p>
-      </div>`
-    : "";
+  const { storeName, customerName, currency, totalMinor, quoteUrl, items } =
+    email;
 
   const html = `<!doctype html>
 <html lang="en">
@@ -146,15 +119,14 @@ export function buildQuoteReadyEmail(email: QuoteReadyEmail): {
         Taxes and shipping are calculated at checkout.
       </p>
 
-      ${noteBlock}
-
       <p style="margin:24px 0 0;">
         <a href="${escapeHtml(quoteUrl)}" style="display:inline-block;padding:12px 20px;background:${ACCENT};color:#ffffff;border-radius:8px;text-decoration:none;font-weight:700;">View &amp; accept your quote</a>
       </p>
 
       <p style="margin:16px 0 0;font-size:13px;color:#616161;">
         Accepting takes you straight to secure checkout at the prices above.
-        Nothing is charged until you do.
+        Nothing is charged until you do &mdash; and if anything needs changing,
+        you can reply to ${escapeHtml(storeName)} on that page.
       </p>
     </div>
   </body>
@@ -274,7 +246,6 @@ export async function emailQuoteToCustomer({
   shop,
   admin,
   quote,
-  sellerNote,
   unitPriceMinorById,
   totalMinor,
   quoteUrl,
@@ -293,12 +264,6 @@ export async function emailQuoteToCustomer({
     currency: string;
     items: { id: string; title: string; variantTitle: string | null; quantity: number }[];
   };
-  /**
-   * The merchant's note to this buyer, as it stands after the send that is
-   * calling this. Passed in rather than read off `quote` because the caller has
-   * just written it, and the row it holds was read before that write.
-   */
-  sellerNote: string | null;
   unitPriceMinorById: Map<string, number>;
   totalMinor: number;
   quoteUrl: string;
@@ -343,7 +308,6 @@ export async function emailQuoteToCustomer({
     currency: quote.currency,
     totalMinor,
     quoteUrl,
-    sellerNote,
     // Same order the buyer's own quote page lists them in, so the email and the
     // page it links to cannot disagree about which line is which.
     items: [...quote.items]

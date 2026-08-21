@@ -19,13 +19,23 @@ import {
   minorFromInput,
   minorToNumber,
   formatDate,
+  formatDateTime,
   formatMoney,
   inputFromMinor,
   statusLabel,
   statusTone,
+  storeName,
 } from "../quotes";
 import { customerQuoteUrl, newPublicToken } from "../public-token.server";
+import { notifyCustomerOfMessage } from "../quote-message-notify.server";
 import { emailQuoteToCustomer } from "../quote-ready.server";
+import {
+  MESSAGE_MAX_LENGTH,
+  appendMessage,
+  buildThread,
+  readMessages,
+} from "../quote-thread.server";
+import { shopProfile } from "../shop-profile.server";
 import {
   STUCK_ACCEPTED_AFTER_MS,
   reviveStuckAccepted,
@@ -46,6 +56,17 @@ import { adoptShopCurrency, shopCurrency } from "../shop-currency.server";
  */
 const SENDABLE_STATUSES = ["REQUESTED", "QUOTED"] as const;
 
+/**
+ * Splits a message body into display lines.
+ *
+ * Bodies are free text typed into a textarea, so they can carry either
+ * newline convention depending on the browser that submitted them.
+ */
+const LINE_BREAK = /\r?\n/;
+
+/** A non-breaking space, so a deliberate blank line keeps its height. */
+const BLANK_LINE = " ";
+
 /** Why a send was refused, in words a merchant can act on. */
 const SEND_REFUSAL: Record<string, string> = {
   ACCEPTED:
@@ -56,16 +77,6 @@ const SEND_REFUSAL: Record<string, string> = {
     "The customer declined this quote, so it can no longer be sent. Create a new quote instead.",
   EXPIRED: "This quote has expired, so it can no longer be sent.",
 };
-
-/**
- * Ceiling on the merchant's note to the customer.
- *
- * The same 2000 characters the storefront endpoint caps the buyer's own note at
- * (LIMITS.note in apps.quotecrate.quote-request.tsx), so the two free-text
- * fields on a quote hold the same amount and neither can be used to push an
- * unbounded string into the database.
- */
-const SELLER_NOTE_MAX_LENGTH = 2000;
 
 /**
  * Same parse as the server, but for the live preview only, so a half-typed
@@ -104,7 +115,29 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const currency = await shopCurrency(session.shop, { admin });
   const quote = await adoptShopCurrency(revived, currency);
 
+  // The conversation, and the name this shop signs its own messages with. Read
+  // together with the quote because the page always shows both.
+  const [messages, profile] = await Promise.all([
+    readMessages(quote.id),
+    shopProfile(session.shop, { admin }),
+  ]);
+
   return {
+    // What the merchant's own messages are labelled with. The buyer sees the
+    // same name on their page, so one conversation reads the same from both
+    // ends.
+    storeName: storeName(session.shop, profile.name),
+    // Oldest first, with the buyer's request note merged in at the top as the
+    // opening message. Timestamps are formatted here: they cross the loader
+    // boundary as strings either way, and formatting them in the browser would
+    // render them in the merchant's timezone while the buyer's page renders the
+    // same message in UTC.
+    thread: buildThread(quote, messages).map((message) => ({
+      author: message.author,
+      body: message.body,
+      at: formatDateTime(message.createdAt),
+      isRequestNote: message.isRequestNote,
+    })),
     // Surfaced so the ACCEPTED banner can state the real recovery window instead
     // of a number typed into the copy that quietly goes stale.
     stuckAfterMinutes: Math.round(STUCK_ACCEPTED_AFTER_MS / 60_000),
@@ -128,7 +161,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       status: quote.status,
       currency: quote.currency,
       note: quote.note,
-      sellerNote: quote.sellerNote,
       // Money columns are BigInt, and bigint cannot be serialised into the
       // loader payload, so they cross back to number here.
       quotedTotalMinor: minorToNumber(quote.quotedTotalMinor),
@@ -272,6 +304,72 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     };
   }
 
+  if (intent === "message") {
+    const body = formData.get("messageBody");
+
+    // Deliberately not gated on status. A quote that is CONVERTED still has an
+    // order behind it the buyer may have questions about, and a DECLINED or
+    // EXPIRED one is exactly where "shall I send you a revised quote?" belongs —
+    // the buyer's own page already tells them to contact the store in both those
+    // states, and this is what it now tells them to contact it *with*. Pricing
+    // stays locked by SENDABLE_STATUSES; only talking is always open.
+    const appended = await appendMessage({
+      quoteId: quote.id,
+      shop: session.shop,
+      author: "MERCHANT",
+      body: typeof body === "string" ? body : "",
+    });
+
+    if (appended.status === "empty") {
+      return { error: "Write a message before sending it." };
+    }
+
+    if (appended.status === "not-found") {
+      return { error: "This quote no longer exists. Reload the page." };
+    }
+
+    // Both mean nothing was written, so nothing is emailed either — one stored
+    // message is one email. Reported apart because they are different facts: a
+    // duplicate is the merchant's own second click, a rate limit is not.
+    if (appended.status === "duplicate") {
+      return { messageSent: "duplicate" as const };
+    }
+
+    if (appended.status === "rate-limited") {
+      return {
+        error:
+          "You've sent several messages on this quote in the last few minutes. Give the customer a moment to reply before sending another.",
+      };
+    }
+
+    // The buyer only has a page to read this on once the quote has been sent and
+    // a token minted. Before that the message is still stored — it is part of
+    // the record — but there is nowhere to point them at, so no mail goes out
+    // and the page says so rather than claiming a send.
+    if (!quote.publicToken) {
+      return { messageSent: "no-link" as const };
+    }
+
+    const { name } = await shopProfile(session.shop, { admin });
+
+    const notified = await notifyCustomerOfMessage({
+      quoteId: quote.id,
+      storeName: storeName(session.shop, name),
+      customerName: quote.customerName,
+      customerEmail: quote.customerEmail,
+      quoteUrl: customerQuoteUrl(session.shop, quote.publicToken),
+      body: appended.message.body,
+    });
+
+    return notified.ok
+      ? { messageSent: "sent" as const, messageTo: quote.customerEmail }
+      : {
+          messageSent: "failed" as const,
+          messageTo: quote.customerEmail,
+          messageError: notified.error,
+        };
+  }
+
   if (intent !== "send") {
     return { error: "Unsupported action" };
   }
@@ -294,22 +392,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (typeof rawPrices !== "string") {
     return { error: "No pricing information was submitted." };
   }
-
-  // The merchant's note to the customer, which rides along with the pricing
-  // because it is written in the same form and has to be saved by the same
-  // click that sends the quote.
-  //
-  // Absent — rather than empty — means the submission did not carry the field at
-  // all, which is what a tab left open from before this feature posts. That has
-  // to leave the stored note alone; treating it as a clear would silently wipe a
-  // note the merchant never touched. An empty string, on the other hand, is the
-  // merchant emptying the box on purpose, and is stored as null so the buyer's
-  // page hides the block again.
-  const rawSellerNote = formData.get("sellerNote");
-  const sellerNoteSubmitted = typeof rawSellerNote === "string";
-  const sellerNote = sellerNoteSubmitted
-    ? rawSellerNote.trim().slice(0, SELLER_NOTE_MAX_LENGTH) || null
-    : null;
 
   // Parsed defensively: this is a form field, so a truncated submit or a stale
   // client can deliver something that is not JSON at all. Left unguarded it
@@ -411,7 +493,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         quotedTotalMinor: BigInt(totalMinor),
         status: "QUOTED",
         publicToken,
-        ...(sellerNoteSubmitted ? { sellerNote } : {}),
       },
     });
 
@@ -442,10 +523,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     shop: session.shop,
     admin,
     quote,
-    // The note as it stands after this send, not as it was read at the top of
-    // the action: the merchant just typed it, so the email has to carry the new
-    // one. Falls back to the stored note when the submission carried no field.
-    sellerNote: sellerNoteSubmitted ? sellerNote : quote.sellerNote,
     unitPriceMinorById: byId,
     totalMinor,
     quoteUrl,
@@ -460,8 +537,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 };
 
 export default function QuoteDetail() {
-  const { quote, customerQuoteUrl, shopCurrencyMismatch, stuckAfterMinutes } =
-    useLoaderData<typeof loader>();
+  const {
+    quote,
+    thread,
+    storeName: shopName,
+    customerQuoteUrl,
+    shopCurrencyMismatch,
+    stuckAfterMinutes,
+  } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -474,13 +557,15 @@ export default function QuoteDetail() {
     ),
   );
 
-  // The merchant's note to the customer, seeded from whatever was saved last so
-  // a re-price edits the existing note rather than starting from a blank box.
-  const [sellerNote, setSellerNote] = useState(quote.sellerNote ?? "");
+  // The message being composed. Cleared once the server confirms it landed, so
+  // a failed send never loses what the merchant wrote.
+  const [draft, setDraft] = useState("");
 
   // Which button was pressed last, so the error banner can name the operation
   // that actually failed.
-  const [lastIntent, setLastIntent] = useState<"send" | "convert">("send");
+  const [lastIntent, setLastIntent] = useState<"send" | "convert" | "message">(
+    "send",
+  );
 
   const isSubmitting = fetcher.state !== "idle";
   const actionError =
@@ -503,6 +588,22 @@ export default function QuoteDetail() {
     fetcher.data && "quoteEmailError" in fetcher.data
       ? fetcher.data.quoteEmailError
       : undefined;
+  // How the conversation message went on the submission that just finished.
+  // Undefined outside a message send, so it can never light up another
+  // operation's banner.
+  const messageSent =
+    fetcher.data && "messageSent" in fetcher.data
+      ? fetcher.data.messageSent
+      : undefined;
+  const messageTo =
+    fetcher.data && "messageTo" in fetcher.data
+      ? fetcher.data.messageTo
+      : undefined;
+  const messageError =
+    fetcher.data && "messageError" in fetcher.data
+      ? fetcher.data.messageError
+      : undefined;
+
   const converted =
     fetcher.data && "converted" in fetcher.data ? fetcher.data.converted : false;
 
@@ -568,6 +669,37 @@ export default function QuoteDetail() {
   }, [sent, quoteEmail, quoteEmailTo, shopify]);
 
   useEffect(() => {
+    if (!messageSent) return;
+
+    // The box is emptied only for outcomes where the message is actually on the
+    // thread. A rate limit comes back as an error instead and never reaches
+    // here, so what the merchant wrote survives for them to send in a minute.
+    setDraft("");
+
+    // Same honesty rule the send toast follows: the button promises the
+    // customer will hear about it, so the toast reports the *email*, not the
+    // row that was written.
+    if (messageSent === "sent") {
+      shopify.toast.show(`Message sent to ${messageTo}`);
+      return;
+    }
+
+    if (messageSent === "duplicate") {
+      shopify.toast.show("You already sent that message a moment ago");
+      return;
+    }
+
+    if (messageSent === "no-link") {
+      shopify.toast.show(
+        "Message saved — the customer sees it once you send the quote",
+      );
+      return;
+    }
+
+    shopify.toast.show("Message saved, but the customer wasn't emailed");
+  }, [messageSent, messageTo, shopify]);
+
+  useEffect(() => {
     if (!converted) return;
 
     shopify.toast.show(
@@ -593,17 +725,24 @@ export default function QuoteDetail() {
   // order, so the double click it used to allow ended in a red "already
   // converted" banner sitting on top of a conversion that had worked — the
   // buyer-facing accept form has been guarded the same way from the start.
-  const submit = (intent: "send" | "convert", body: Record<string, string>) => {
+  const submit = (
+    intent: "send" | "convert" | "message",
+    body: Record<string, string>,
+  ) => {
     if (fetcher.state !== "idle") return;
 
     setLastIntent(intent);
     fetcher.submit({ intent, ...body }, { method: "POST" });
   };
 
-  const send = () =>
-    submit("send", { prices: JSON.stringify(prices), sellerNote });
+  const send = () => submit("send", { prices: JSON.stringify(prices) });
 
   const convert = () => submit("convert", {});
+
+  const sendMessage = () => {
+    if (!draft.trim()) return;
+    submit("message", { messageBody: draft });
+  };
 
   const copy = async (value: string, confirmation: string) => {
     try {
@@ -691,11 +830,13 @@ export default function QuoteDetail() {
         <s-banner
           tone="critical"
           heading={
-            lastIntent === "convert"
-              ? "Couldn't convert this quote to an order"
-              : isFirstSend
-                ? "Couldn't send this quote"
-                : "Couldn't resend this quote"
+            lastIntent === "message"
+              ? "Couldn't send this message"
+              : lastIntent === "convert"
+                ? "Couldn't convert this quote to an order"
+                : isFirstSend
+                  ? "Couldn't send this quote"
+                  : "Couldn't resend this quote"
           }
         >
           <s-paragraph>{actionError}</s-paragraph>
@@ -748,6 +889,28 @@ export default function QuoteDetail() {
             {quoteEmailTo} yourself.
           </s-paragraph>
           {quoteEmailError && <s-paragraph>{quoteEmailError}</s-paragraph>}
+        </s-banner>
+      )}
+
+      {messageSent === "failed" && (
+        <s-banner tone="warning" heading="The customer wasn't emailed">
+          <s-paragraph>
+            Your message is on the conversation below and stays on this quote —
+            only the email to {messageTo} failed. They will see it if they open
+            their quote link, but they haven&apos;t been told it is there.
+          </s-paragraph>
+          {messageError && <s-paragraph>{messageError}</s-paragraph>}
+        </s-banner>
+      )}
+
+      {messageSent === "no-link" && (
+        <s-banner tone="info" heading="Saved, but not sent yet">
+          <s-paragraph>
+            This quote hasn&apos;t been sent to the customer, so there is no
+            page for them to read it on and nobody to email. Your message is
+            saved on the conversation, and they will see it there as soon as you
+            send the quote.
+          </s-paragraph>
         </s-banner>
       )}
 
@@ -883,30 +1046,6 @@ export default function QuoteDetail() {
               {formatMoney(runningTotalMinor, quote.currency)}
             </s-heading>
           </s-stack>
-
-          <s-divider />
-
-          {/*
-            Saved by the same click that saves the prices, so the note the
-            customer reads and the prices they read always come from one
-            submission. Editable from QUOTED as well as REQUESTED — a re-price
-            is exactly when a merchant needs to explain what changed.
-          */}
-          <s-text-area
-            label="Note to the customer (optional)"
-            value={sellerNote}
-            rows={4}
-            maxLength={SELLER_NOTE_MAX_LENGTH}
-            readOnly={!canSend}
-            details={
-              canSend
-                ? "Shown to the customer on their quote page and in the email. Leave it blank to show nothing."
-                : "This quote can no longer be changed, so the note is read-only."
-            }
-            onInput={(event: Event) =>
-              setSellerNote((event.target as HTMLTextAreaElement).value)
-            }
-          />
         </s-stack>
       </s-section>
 
@@ -944,16 +1083,79 @@ export default function QuoteDetail() {
       </s-section>
 
       {/*
-        The buyer's own words, from the storefront request form. Headed by who
-        wrote it: the page now carries two notes going in opposite directions,
-        and a bare "Note" beside the merchant's own box is exactly the confusion
-        that let the buyer's note be shown back to them as the store's.
+        The conversation, oldest first, exactly as the buyer sees it on their own
+        page — including their request note as the opening message, which is why
+        this replaced the aside that used to show that note on its own. Every
+        message is labelled with who wrote it, so neither side's words can be
+        read as the other's.
       */}
-      {quote.note && (
-        <s-section slot="aside" heading="Customer's note">
-          <s-paragraph>{quote.note}</s-paragraph>
-        </s-section>
-      )}
+      <s-section heading="Conversation">
+        <s-stack direction="block" gap="base">
+          {thread.length === 0 ? (
+            <s-paragraph>
+              Nothing has been said about this quote yet. Anything you send here
+              reaches the customer by email and appears on their quote page.
+            </s-paragraph>
+          ) : (
+            thread.map((message, index) => (
+              <s-box
+                key={`${message.at}-${index}`}
+                padding="base"
+                borderWidth="base"
+                borderRadius="base"
+              >
+                <s-stack direction="block" gap="small-200">
+                  <s-stack direction="inline" gap="small-200">
+                    <s-badge
+                      tone={message.author === "MERCHANT" ? "info" : "neutral"}
+                    >
+                      {message.author === "MERCHANT"
+                        ? shopName || "You"
+                        : quote.customerName || "Customer"}
+                    </s-badge>
+                    <s-text>{message.at}</s-text>
+                  </s-stack>
+                  {/*
+                    Split on newlines rather than rendered with white-space:
+                    pre-wrap, because this is JSX: React escapes the text for us
+                    and the paragraphs keep the section's own spacing.
+                  */}
+                  {message.body.split(LINE_BREAK).map((line, lineIndex) => (
+                    <s-paragraph key={lineIndex}>{line || BLANK_LINE}</s-paragraph>
+                  ))}
+                </s-stack>
+              </s-box>
+            ))
+          )}
+
+          <s-divider />
+
+          <s-text-area
+            label="Message to the customer"
+            value={draft}
+            rows={4}
+            maxLength={MESSAGE_MAX_LENGTH}
+            placeholder="Ask a question, or explain the pricing…"
+            details={
+              customerLink
+                ? "Sent to the customer by email and added to this conversation."
+                : "Saved to this conversation. The customer can read it once you send the quote."
+            }
+            onInput={(event: Event) =>
+              setDraft((event.target as HTMLTextAreaElement).value)
+            }
+          />
+
+          <s-stack direction="inline" gap="base">
+            <s-button
+              onClick={sendMessage}
+              {...(isSubmitting || !draft.trim() ? { disabled: true } : {})}
+            >
+              Send message
+            </s-button>
+          </s-stack>
+        </s-stack>
+      </s-section>
     </s-page>
   );
 }

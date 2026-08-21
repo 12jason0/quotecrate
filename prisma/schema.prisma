@@ -84,14 +84,6 @@ model Quote {
   // What the buyer wrote for the merchant when they asked for the quote.
   // Storefront input, capped at 2000 characters by the request endpoint.
   note          String?
-  // What the merchant writes back to the buyer when they price the quote —
-  // "these are ex-VAT", "the blue one is on a four week lead time". Deliberately
-  // a second column rather than a reuse of `note`: the two are written by
-  // different people to different audiences, and the buyer's quote page used to
-  // render `note` under a "Note from the store" heading, showing the buyer their
-  // own words back as if the shop had said them. Null until the merchant writes
-  // one, and the buyer-facing block stays hidden while it is.
-  sellerNote    String?
   // Whole minor units of `currency` — won for KRW, cents for USD, fils for
   // BHD. The scale is the currency's own (see currencyDecimals in app/quotes.ts),
   // never a fixed 100. BigInt rather than Int so a large total has room even in
@@ -121,11 +113,64 @@ model Quote {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   items         QuoteItem[]
+  // Everything said about this quote *after* the request came in. The buyer's
+  // original `note` is deliberately not moved in here — see QuoteMessage.
+  messages      QuoteMessage[]
 
   @@index([shop, status])
   // Backs the flood check the public quote-request endpoint runs before it
   // writes: "how many quotes has this address filed at this shop recently".
   @@index([shop, customerEmail, createdAt])
+}
+
+/** Who wrote a message. Both sides of one conversation, so one column. */
+enum QuoteMessageAuthor {
+  CUSTOMER
+  MERCHANT
+}
+
+/**
+ * One message in the conversation attached to a quote.
+ *
+ * A quote is a negotiation, and a negotiation is a back-and-forth: the buyer
+ * asks whether the lead time can be shortened, the merchant answers, the buyer
+ * accepts. This replaces the single `Quote.sellerNote` that came before it,
+ * which could hold exactly one sentence from exactly one side and was
+ * overwritten by the next send.
+ *
+ * `Quote.note` — the note the buyer typed on the storefront request form — is
+ * deliberately NOT copied in here. It is already the first thing said about this
+ * quote, and it is stored on the quote itself because the merchant notification
+ * email and the Shopify draft order both read it from there. Copying it would
+ * give it two homes that can disagree; instead both pages prepend it to the
+ * thread when they render (see buildThread in app/quote-thread.server.ts), which
+ * is a view concern and costs no write at all.
+ */
+model QuoteMessage {
+  id        String             @id @default(cuid())
+  quoteId   String
+  quote     Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  author    QuoteMessageAuthor
+  // Free text, capped by the writing endpoints at MESSAGE_MAX_LENGTH.
+  body      String
+  // What makes "the same message twice" a thing the database can refuse.
+  //
+  // Derived from the author, a digest of the body and a coarse time bucket (see
+  // dedupeKey in app/quote-thread.server.ts). The buyer's reply form works with
+  // JavaScript off, so nothing on the client stops a double submit or a reloaded
+  // POST, and every message that lands emails the other side — a duplicate is
+  // two emails for one sentence, not a cosmetic blemish.
+  //
+  // A unique index rather than a read-then-insert: two submissions arriving
+  // together would both find nothing and both write. This is the same
+  // "let the database decide the race" approach the conversion paths take with
+  // their compare-and-set updates.
+  dedupeKey String
+  createdAt DateTime           @default(now())
+
+  // The thread is always read whole and in order, for one quote at a time.
+  @@index([quoteId, createdAt])
+  @@unique([quoteId, dedupeKey])
 }
 
 model QuoteItem {
