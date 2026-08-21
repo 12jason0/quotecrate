@@ -45,4 +45,12 @@ api_version = "2026-10"
 redirect_urls = [ "https://quotecrate-production.up.railway.app/auth/callback" ]
 
 [build]
-automatically_update_urls_on_dev = true
+# Left off deliberately.
+#
+# With this on, `shopify app dev` rewrites application_url, the app proxy
+# url and redirect_urls to its temporary tunnel and pushes them to the
+# dashboard — which is how the live URLs came to point somewhere the
+# deployed app never was, leaving the admin iframe loading a dead host.
+# With it off, `app dev` prints the tunnel URL and leaves the released
+# configuration alone; update it deliberately with `shopify app deploy`.
+automatically_update_urls_on_dev = false
