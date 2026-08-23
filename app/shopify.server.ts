@@ -11,14 +11,6 @@ import prisma from "./db.server";
 export const STANDARD_PLAN = "Standard";
 
 /**
- * Test charges cost the merchant $0 and are only accepted on dev/partner stores.
- * `isTest: true` on a billing check means "also accept test subscriptions", so
- * production only ever passes on a real, paid subscription.
- */
-// eslint-disable-next-line no-undef
-export const BILLING_IS_TEST = process.env.NODE_ENV !== "production";
-
-/**
  * The "Create sample quote" seed writes a fabricated quote straight into the
  * database so the pricing and ordering flow can be walked through before any
  * real request arrives. On a live shop that is merchant-visible junk, so both

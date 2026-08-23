@@ -3,9 +3,9 @@ import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
+import { shouldUseTestCharge } from "../billing-mode.server";
 import {
   authenticate,
-  BILLING_IS_TEST,
   BILLING_REQUIRED,
   STANDARD_PLAN,
 } from "../shopify.server";
@@ -34,14 +34,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, billing, session } = await authenticate.admin(request);
 
   // Shops without an active subscription are sent to Shopify's approval page.
-  // `billing.request` throws the redirect, so subscribed shops fall straight through.
+  // `billing.request` throws the redirect, so subscribed shops fall straight
+  // through. The redirect has to leave the admin iframe to reach that page; the
+  // library does that itself, by bouncing through /auth/exit-iframe (served by
+  // app/routes/auth.$.tsx) and letting App Bridge move the top window.
+  //
+  // Whether the charge is a test one is the shop's own answer, not this
+  // deployment's — see billing-mode.server.ts. It is resolved inside the gate so
+  // that a shop which is already subscribed never pays for the lookup.
   if (BILLING_REQUIRED) {
     try {
+      const isTest = await shouldUseTestCharge(session.shop, admin);
+
       await billing.require({
         plans: [STANDARD_PLAN],
-        isTest: BILLING_IS_TEST,
-        onFailure: async () =>
-          billing.request({ plan: STANDARD_PLAN, isTest: BILLING_IS_TEST }),
+        isTest,
+        onFailure: async () => billing.request({ plan: STANDARD_PLAN, isTest }),
       });
     } catch (error) {
       // The approval redirect is thrown, not returned — never swallow it.
