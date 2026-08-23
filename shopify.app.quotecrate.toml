@@ -1,0 +1,113 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# The QuoteCrate app in the QuoteCrate organization (232181059) — the one that
+# can take Public distribution and so the one an App Store listing hangs off.
+#
+# It exists alongside shopify.app.toml, which stays pointed at the original app
+# in the old dev organization (230620217). An app cannot be moved between
+# organizations, so the only way into a distributable org is a second app; the
+# old one is kept rather than deleted so the dev store install keeps working
+# until this one has been proven. Everything below is a deliberate copy of that
+# file — `config link` writes only defaults, so each value has to be restored by
+# hand or the deployed app silently loses it.
+
+client_id = "af8a6fa867b438f0d1e43daf870a80a2"
+application_url = "https://quotecrate-production.up.railway.app"
+embedded = true
+name = "QuoteCrate"
+
+# The URL slug of App Home — the app is reached at
+# https://admin.shopify.com/store/{store}/apps/quotecrate.
+#
+# Optional, and left unset until now, which meant two things depended on a
+# fallback instead of a fact: the admin deep link in the merchant notification
+# email fell back to the client id (app/quote-notification.server.ts), and the
+# Shopify App Pricing plan selection page — .../charges/{handle}/pricing_plans —
+# had no handle to build a URL from at all. Pinned here so both read the same
+# value the dev store already serves the app under.
+handle = "quotecrate"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# write_draft_orders is required by the draftOrderCreate mutation used to turn a
+# QUOTED quote into a payable draft order. It is the only scope this app asks
+# for: the two other Admin calls read `shop { currencyCode }` and `shop { email }`,
+# which the docs list no scope requirement for.
+scopes = "write_draft_orders"
+optional_scopes = [ ]
+# Shopify managed installation, which is what the token-exchange flow in
+# app/shopify.server.ts expects. Written by `config link` as a new default; the
+# older shopify.app.toml predates the key and relies on the same default.
+use_legacy_install_flow = false
+
+[app_proxy]
+# The CLI swaps only the host of this URL when running `app dev`, so the
+# "/apps/quotecrate" path is preserved and the storefront path maps 1:1 onto
+# the app route at app/routes/apps.quotecrate.quote-request.tsx.
+#
+# prefix and subpath are frozen on a store at install time and cannot be changed
+# by the app afterwards, so these have to be right before the first install of
+# this app rather than fixed later.
+url = "https://quotecrate-production.up.railway.app/apps/quotecrate"
+prefix = "apps"
+subpath = "quotecrate"
+
+[webhooks]
+# Kept at the version the original app was deployed with rather than the
+# 2026-07 default `config link` wrote, so the payloads this app's handlers
+# receive do not change as part of moving organizations.
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+  # The three mandatory privacy webhooks every public app has to answer before
+  # it can be submitted. They use `compliance_topics`, not `topics` — Shopify
+  # treats them as a separate class and rejects them under the ordinary key.
+  # https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
+
+  # Handled by: app/routes/webhooks.customers.data_request.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  # Handled by: app/routes/webhooks.customers.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  # Handled by: app/routes/webhooks.shop.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+[auth]
+# The OAuth callback this app actually serves.
+#
+# shopifyApp() derives it as `${authPathPrefix}/callback`, and
+# app/shopify.server.ts sets authPathPrefix to "/auth", so the only path
+# Shopify may redirect back to is /auth/callback — served by the splat route
+# app/routes/auth.$.tsx. The "/api/auth" that stood here came from the
+# template placeholder and matches no route in this app, so every OAuth
+# round trip (a fresh install, or a re-auth after the offline token
+# expires) was refused by Shopify as an unwhitelisted redirect_uri.
+redirect_urls = [ "https://quotecrate-production.up.railway.app/auth/callback" ]
+
+[build]
+# Left off deliberately.
+#
+# With this on, `shopify app dev` rewrites application_url, the app proxy
+# url and redirect_urls to its temporary tunnel and pushes them to the
+# dashboard — which is how the live URLs came to point somewhere the
+# deployed app never was, leaving the admin iframe loading a dead host.
+# With it off, `app dev` prints the tunnel URL and leaves the released
+# configuration alone; update it deliberately with `shopify app deploy`.
+#
+# `config link` made this file the default config, so an unguarded `app dev`
+# would now aim at the new app — this matters more here, not less.
+automatically_update_urls_on_dev = false
