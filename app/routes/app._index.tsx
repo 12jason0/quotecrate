@@ -1,15 +1,50 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { useLoaderData } from "react-router";
 
 import { authenticate } from "../shopify.server";
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+/**
+ * The filename of the block's Liquid file, without the extension —
+ * extensions/quote-request/blocks/request_quote.liquid.
+ */
+const BLOCK_HANDLE = "request_quote";
 
-  return null;
+/**
+ * A theme editor deep link that adds the quote block to the main section of the
+ * shop's live product template, so the merchant lands on a preview of it rather
+ * than having to find it in a block picker. App Store requirement 5.1.3 asks
+ * for setup instructions and recommends exactly this.
+ *
+ * The identifier is the app's api_key — the same value as `client_id`. The
+ * theme app extension's own `uuid` used to go here and is now deprecated in
+ * favour of it, which is convenient: the api_key is already in this app's
+ * environment, while the extension uuid would have to be threaded in from the
+ * deploy.
+ * https://shopify.dev/docs/apps/build/online-store/theme-app-extensions/configuration
+ */
+function themeEditorDeepLink(shop: string, apiKey: string): string {
+  const params = new URLSearchParams({
+    template: "product",
+    addAppBlockId: `${apiKey}/${BLOCK_HANDLE}`,
+    target: "mainSection",
+  });
+
+  return `https://${shop}/admin/themes/current/editor?${params.toString()}`;
+}
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+
+  // eslint-disable-next-line no-undef
+  const apiKey = process.env.SHOPIFY_API_KEY || "";
+
+  return { setupUrl: themeEditorDeepLink(session.shop, apiKey) };
 };
 
 export default function Index() {
+  const { setupUrl } = useLoaderData<typeof loader>();
+
   return (
     <s-page heading="QuoteCrate">
       <s-button slot="primary-action" href="/app/quotes">
@@ -52,11 +87,49 @@ export default function Index() {
       </s-section>
 
       <s-section slot="aside" heading="Setup">
-        <s-stack direction="block" gap="small-200">
+        <s-stack direction="block" gap="base">
           <s-paragraph>
-            Add the <s-text>Request a Quote</s-text> block to a product page in
-            your theme editor so buyers can submit requests.
+            Buyers can only request quotes once the{" "}
+            <s-text type="strong">Request a Quote</s-text> block is on your
+            storefront. The button below opens your theme editor with the block
+            already added to your product page, ready to preview.
           </s-paragraph>
+
+          {/* Opens the merchant's own admin, so it has to break out of this
+              iframe rather than navigate inside it. */}
+          <s-button href={setupUrl} target="_blank" variant="primary">
+            Add the block to my theme
+          </s-button>
+
+          <s-ordered-list>
+            <s-list-item>
+              Select <s-text type="strong">Add the block to my theme</s-text>.
+              The theme editor opens on your product template with the block in
+              place.
+            </s-list-item>
+            <s-list-item>
+              Drag the block where you want it to appear on the page — most
+              stores put it under the Add to cart button.
+            </s-list-item>
+            <s-list-item>
+              Optional: set a{" "}
+              <s-text type="strong">Wholesale collection</s-text> in the
+              block&apos;s settings so buyers can request several products at
+              once. Leave it empty to quote only the product being viewed.
+            </s-list-item>
+            <s-list-item>
+              Select <s-text type="strong">Save</s-text>. Requests then arrive
+              under Quotes, and you are emailed as each one comes in.
+            </s-list-item>
+          </s-ordered-list>
+
+          <s-paragraph>
+            Using a theme that does not support app blocks? Open{" "}
+            <s-text type="strong">Online Store → Themes → Customize</s-text>,
+            then add <s-text type="strong">Request a Quote</s-text> from the
+            Apps section of any product section.
+          </s-paragraph>
+
           <s-paragraph>
             Quotes are priced and invoiced in your store&apos;s own currency.
           </s-paragraph>
