@@ -17,15 +17,24 @@ embedded = true
 name = "QuoteCrate"
 
 # The URL slug of App Home — the app is reached at
-# https://admin.shopify.com/store/{store}/apps/quotecrate.
+# https://admin.shopify.com/store/{store}/apps/quotecrate-app.
 #
-# Optional, and left unset until now, which meant two things depended on a
-# fallback instead of a fact: the admin deep link in the merchant notification
-# email fell back to the client id (app/quote-notification.server.ts), and the
-# Shopify App Pricing plan selection page — .../charges/{handle}/pricing_plans —
-# had no handle to build a URL from at all. Pinned here so both read the same
-# value the dev store already serves the app under.
-handle = "quotecrate"
+# Two things read this rather than falling back: the admin deep link in the
+# merchant notification email, which otherwise uses the client id
+# (app/quote-notification.server.ts), and the Shopify App Pricing plan selection
+# page — .../charges/{handle}/pricing_plans — which has no URL to build without
+# it.
+#
+# Not "quotecrate": app handles are unique across apps, and the original app in
+# the old organization still holds that one. Deploying this app with it fails
+# validation with `app_handle: App handle must be unique`. Freeing it would mean
+# deploying a handle change to the old app, which is still the one serving the
+# dev store, so the new app takes a distinct handle instead and the old app is
+# left alone.
+#
+# The app proxy subpath below stays "quotecrate" deliberately — it is a separate
+# namespace from the handle, and it is what the storefront form posts to.
+handle = "quotecrate-app"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
