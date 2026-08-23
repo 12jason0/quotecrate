@@ -1,5 +1,6 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Outlet, useLoaderData, useRouteError } from "react-router";
+import { Form, Outlet, useLoaderData, useRouteError } from "react-router";
+import { useRef } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
@@ -49,7 +50,7 @@ function embeddedHost(shop: string): string {
 }
 
 /**
- * Where the "Start subscription" button points.
+ * What the "Start subscription" form carries to /app/subscribe.
  *
  * `embedded=1` and `host` are not decoration. `billing.request` escapes the
  * admin iframe by way of `redirectOutOfApp`, which picks its strategy from the
@@ -58,17 +59,14 @@ function embeddedHost(shop: string): string {
  * parameters it takes the plain-redirect branch instead and tries to load
  * Shopify's confirmation page inside the iframe, which the admin refuses to
  * frame.
+ *
+ * They are fields rather than a query string because the form has to be a GET,
+ * and a GET form discards whatever query string its action already carries.
  */
-function subscribeUrl(request: Request, shop: string): string {
+function subscribeFields(request: Request, shop: string) {
   const incoming = new URL(request.url).searchParams;
 
-  const params = new URLSearchParams({
-    shop,
-    host: incoming.get("host") || embeddedHost(shop),
-    embedded: "1",
-  });
-
-  return `/app/subscribe?${params.toString()}`;
+  return { shop, host: incoming.get("host") || embeddedHost(shop) };
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -114,7 +112,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return {
       apiKey,
       needsSubscription,
-      subscribeUrl: subscribeUrl(request, session.shop),
+      subscribe: subscribeFields(request, session.shop),
     };
   }
 
@@ -126,7 +124,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // our own database instead of a live call that can fail.
   await shopCurrency(session.shop, { admin });
 
-  return { apiKey, needsSubscription, subscribeUrl: "" };
+  return { apiKey, needsSubscription, subscribe: { shop: "", host: "" } };
 };
 
 /**
@@ -137,7 +135,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
  * from the redirect loop it replaces. A merchant who declined can read what the
  * plan costs and start it again whenever they like.
  */
-function SubscriptionRequired({ subscribeUrl }: { subscribeUrl: string }) {
+function SubscriptionRequired({
+  subscribe,
+}: {
+  subscribe: { shop: string; host: string };
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   return (
     <s-page heading="QuoteCrate">
       <s-section heading="A subscription is required">
@@ -154,18 +158,43 @@ function SubscriptionRequired({ subscribeUrl }: { subscribeUrl: string }) {
             and you can cancel from Settings → Apps and sales channels at any
             time.
           </s-paragraph>
-          {/* A link, not a form. A form submission reaches the server as
-              `POST /app/subscribe.data` carrying an Authorization header, which
-              `redirectOutOfApp` reads as XHR: it answers with a bare 401 and
-              leaves the redirect to App Bridge, which does not act on it — the
-              merchant just saw "401 Unauthorized". An anchor is a document
-              request, which is the branch that redirects through
-              /auth/exit-iframe and actually reaches Shopify's confirmation
-              page. React Router does not intercept plain anchors, so this stays
-              a document navigation. */}
-          <s-button href={subscribeUrl} variant="primary">
-            Start subscription
-          </s-button>
+          {/* This has to leave as a real document request. Anything the client
+              router handles — a `<Form>` submission, a client-side navigation,
+              and, as the logs showed, an `<s-button href>` too — goes out as a
+              single-fetch `/app/subscribe.data` call carrying an Authorization
+              header. `redirectOutOfApp` reads that header as XHR: it answers
+              with a bare 401 that names the confirmation URL in a header and
+              leaves the redirect to App Bridge, which does not act on it, so
+              the merchant is shown "401 Unauthorized".
+
+              `reloadDocument` is what opts out: React Router leaves the form
+              alone and the browser navigates natively, so the request arrives
+              as `GET /app/subscribe` with no `.data` and no Authorization
+              header — the branch that redirects through /auth/exit-iframe and
+              reaches Shopify's confirmation page.
+
+              A GET form drops the action's own query string, so the three
+              parameters that branch depends on are fields. */}
+          <Form
+            ref={formRef}
+            reloadDocument
+            method="get"
+            action="/app/subscribe"
+          >
+            <input type="hidden" name="shop" value={subscribe.shop} />
+            <input type="hidden" name="host" value={subscribe.host} />
+            <input type="hidden" name="embedded" value="1" />
+            {/* Deliberately not `type="submit"`. Whether this custom element
+                triggers a native submit is not something to leave to chance, so
+                the click drives the submission explicitly and is the only thing
+                that does — two paths could otherwise fire it twice. */}
+            <s-button
+              variant="primary"
+              onClick={() => formRef.current?.requestSubmit()}
+            >
+              Start subscription
+            </s-button>
+          </Form>
         </s-stack>
       </s-section>
     </s-page>
@@ -173,13 +202,13 @@ function SubscriptionRequired({ subscribeUrl }: { subscribeUrl: string }) {
 }
 
 export default function App() {
-  const { apiKey, needsSubscription, subscribeUrl } =
+  const { apiKey, needsSubscription, subscribe } =
     useLoaderData<typeof loader>();
 
   return (
     <AppProvider embedded apiKey={apiKey}>
       {needsSubscription ? (
-        <SubscriptionRequired subscribeUrl={subscribeUrl} />
+        <SubscriptionRequired subscribe={subscribe} />
       ) : (
         <>
           <s-app-nav>
