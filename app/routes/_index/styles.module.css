@@ -1,6 +1,7 @@
 /* Standalone marketing page — this route renders outside the admin, so it does
    not use Polaris. The palette mirrors the customer quote page
-   (app/routes/apps.quotecrate.quote.tsx) so install and quote feel like one app. */
+   (app/routes/apps.quotecrate.quote.tsx) so the landing page and the quote a
+   buyer receives feel like one app. */
 .page {
   --qc-page-bg: #fffdf9;
   --qc-surface: #ffffff;
@@ -72,14 +73,12 @@
   padding: 56px 0 60px;
 }
 
-/* The horizontal padding sits on the inner grid, not on .hero, so the hero
+/* The horizontal padding sits on the inner block, not on .hero, so the hero
    content lands on the same 1040px + 24px edges every other section uses.
-   .hero itself stays full-bleed so the brown band still reaches the viewport. */
+   .hero itself stays full-bleed so the brown band still reaches the viewport.
+   One column: the second column used to hold the install form, which App Store
+   requirement 2.3.1 does not allow an app to offer. */
 .heroInner {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  align-items: center;
-  gap: 48px;
   max-width: 1040px;
   margin: 0 auto;
   padding: 0 24px;
@@ -110,78 +109,6 @@
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.76);
   max-width: 46ch;
-}
-
-/* 2b. Install card */
-.installCard {
-  background: var(--qc-page-bg);
-  color: var(--qc-text);
-  border-radius: 22px;
-  padding: 26px 26px 28px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 14px 40px rgba(0, 0, 0, 0.22);
-}
-
-.installTitle {
-  font-family: var(--qc-heading-font);
-  font-size: 21px;
-  font-weight: 600;
-  margin: 0 0 16px;
-}
-
-.form {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-}
-
-.label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--qc-muted-strong);
-}
-
-.input {
-  width: 100%;
-  font: inherit;
-  padding: 12px 14px;
-  border: 1px solid var(--qc-rule);
-  border-radius: 12px;
-  background: var(--qc-surface);
-  color: var(--qc-text);
-}
-
-.input::placeholder {
-  color: var(--qc-muted);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--qc-accent);
-  box-shadow: 0 0 0 3px rgba(164, 85, 43, 0.16);
-}
-
-.hint {
-  font-size: 12.5px;
-  color: var(--qc-muted);
-}
-
-.button {
-  margin-top: 9px;
-  width: 100%;
-  font: inherit;
-  font-weight: 700;
-  font-size: 16px;
-  padding: 14px 20px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--qc-accent);
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(164, 85, 43, 0.28);
-}
-
-.button:hover {
-  background: var(--qc-accent-strong);
 }
 
 /* 3. Features */
@@ -270,11 +197,6 @@
 }
 
 @media (max-width: 860px) {
-  .heroInner {
-    grid-template-columns: 1fr;
-    gap: 32px;
-  }
-
   .heading {
     font-size: 34px;
   }

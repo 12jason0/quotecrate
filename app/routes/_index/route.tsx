@@ -1,10 +1,17 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
-
-import { login } from "../../shopify.server";
+import { redirect } from "react-router";
 
 import styles from "./styles.module.css";
 
+/**
+ * Public marketing page.
+ *
+ * It carries no shop-domain form. App Store requirement 2.3.1 forbids an app
+ * from walking a merchant through installing itself, so installation happens
+ * only through the App Store listing; a merchant who arrives here with a `shop`
+ * parameter is already inside Shopify's own flow and is handed straight to the
+ * embedded app below.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
@@ -12,7 +19,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 export const meta: MetaFunction = () => [
@@ -47,8 +54,6 @@ const FEATURES = [
 ];
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
     <div className={styles.page} translate="no">
       <header className={styles.topbar}>
@@ -60,48 +65,15 @@ export default function App() {
 
       <section className={styles.hero}>
         <div className={styles.heroInner}>
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>Built for wholesale sellers</span>
-            <h1 className={styles.heading}>
-              Wholesale quotes, from request to paid order.
-            </h1>
-            <p className={styles.subhead}>
-              Let buyers request a quote right from your store. You set the
-              price, they check out at that price — no email back-and-forth, no
-              manual order building.
-            </p>
-          </div>
-
-          {showForm && (
-            <div className={styles.installCard}>
-              <h2 className={styles.installTitle}>Install on your store</h2>
-              <Form
-                className={styles.form}
-                method="post"
-                action="/auth/login"
-              >
-                <label className={styles.label} htmlFor="shop">
-                  Shop domain
-                </label>
-                <input
-                  id="shop"
-                  className={styles.input}
-                  type="text"
-                  name="shop"
-                  placeholder="my-shop.myshopify.com"
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-                <span className={styles.hint}>
-                  Your permanent Shopify domain, e.g. my-shop.myshopify.com
-                </span>
-                <button className={styles.button} type="submit">
-                  Log in / Install →
-                </button>
-              </Form>
-            </div>
-          )}
+          <span className={styles.eyebrow}>Built for wholesale sellers</span>
+          <h1 className={styles.heading}>
+            Wholesale quotes, from request to paid order.
+          </h1>
+          <p className={styles.subhead}>
+            Let buyers request a quote right from your store. You set the price,
+            they check out at that price — no email back-and-forth, no manual
+            order building.
+          </p>
         </div>
       </section>
 

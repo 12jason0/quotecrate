@@ -6,6 +6,15 @@ import { Form, useActionData, useLoaderData } from "react-router";
 import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
 
+/**
+ * Re-authentication entry point for a merchant who already has the app.
+ *
+ * The field carries no worked example of a shop domain: App Store requirement
+ * 2.3.1 does not allow an app to instruct a merchant through installing it, and
+ * a sample domain under a "Log in" box reads as exactly that. The form itself
+ * stays — a merchant whose session has lapsed still needs a way back in.
+ */
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const errors = loginErrorMessage(await login(request));
 
@@ -34,7 +43,6 @@ export default function Auth() {
           <s-text-field
             name="shop"
             label="Shop domain"
-            details="example.myshopify.com"
             value={shop}
             onChange={(e) => setShop(e.currentTarget.value)}
             autocomplete="on"
