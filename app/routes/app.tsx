@@ -4,7 +4,6 @@ import { useRef } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
-import { shouldUseTestCharge } from "../billing-mode.server";
 import {
   authenticate,
   BILLING_REQUIRED,
@@ -88,10 +87,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let needsSubscription = false;
   if (BILLING_REQUIRED) {
     try {
-      const isTest = await shouldUseTestCharge(session.shop, admin);
+      // Accept test subscriptions too: Shopify turns charges on non-billable
+      // stores (e.g. App Store review stores) into test charges.
       const { hasActivePayment } = await billing.check({
         plans: [STANDARD_PLAN],
-        isTest,
+        isTest: true,
       });
 
       needsSubscription = !hasActivePayment;
