@@ -54,17 +54,17 @@ export default function Index() {
       <s-section heading="Wholesale quotes, from request to paid order">
         <s-paragraph>
           QuoteCrate turns bulk enquiries into real Shopify orders. Buyers
-          request a quote from your storefront, you set the negotiated price,
-          and Shopify emails the customer a payment link for exactly that
-          amount.
+          request a quote from your storefront, you set and send custom
+          pricing, and the customer can accept the quote and continue directly
+          to Shopify Checkout.
         </s-paragraph>
       </s-section>
 
       <s-section heading="How it works">
         <s-ordered-list>
           <s-list-item>
-            <s-text>Request</s-text> — a buyer submits the quote request block
-            from a product page. The quote appears in Quotes marked{" "}
+            <s-text>Request</s-text> — a buyer submits a quote request from a
+            product page. The quote appears in Quotes marked{" "}
             {/*
               Names the badge rather than rendering one. s-badge is a
               block-level status indicator — mid-sentence it broke onto its own
@@ -76,12 +76,13 @@ export default function Index() {
           </s-list-item>
           <s-list-item>
             <s-text>Price</s-text> — open the quote, enter a unit price for each
-            line, and send it. The quote moves to QUOTED.
+            line, and send it. The customer receives an email with a link to
+            review the quote.
           </s-list-item>
           <s-list-item>
-            <s-text>Convert</s-text> — convert the quote to a draft order.
-            Shopify emails the customer an invoice with a payment link at your
-            quoted prices.
+            <s-text>Accept &amp; checkout</s-text> — the customer reviews and
+            accepts the quote, then continues to Shopify Checkout. A draft order
+            is created automatically using the quoted prices.
           </s-list-item>
         </s-ordered-list>
       </s-section>
