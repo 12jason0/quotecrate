@@ -14,10 +14,9 @@
 import type { Prisma } from "@prisma/client";
 
 import prisma from "./db.server";
-import { shouldUseTestCharge } from "./billing-mode.server";
 import { STANDARD_PLAN, unauthenticated } from "./shopify.server";
 
-export const FREE_QUOTE_LIMIT = 5;
+export const FREE_QUOTE_LIMIT = 10;
 
 /** Above any count a shop can reach; used for a claim that must not be refused. */
 const NO_LIMIT = 2147483647;
@@ -67,14 +66,13 @@ export async function claimQuoteSlot(
 
 type ActiveSubscription = { name: string; test: boolean };
 
-/** Mirrors the library's `billing.check` rule for a recurring plan. */
-export function hasStandard(
-  subscriptions: ActiveSubscription[],
-  isTest: boolean,
-): boolean {
+/**
+ * Mirrors `billing.check({ isTest: true })` in app.tsx: test subscriptions count,
+ * because Shopify turns charges on non-billable stores into test charges.
+ */
+export function hasStandard(subscriptions: ActiveSubscription[]): boolean {
   return subscriptions.some(
-    (subscription) =>
-      subscription.name === STANDARD_PLAN && (isTest || !subscription.test),
+    (subscription) => subscription.name === STANDARD_PLAN,
   );
 }
 
@@ -106,14 +104,13 @@ export async function lookupStandardPlan(
 ): Promise<boolean | null> {
   try {
     const { admin } = await unauthenticated.admin(shop);
-    const isTest = await shouldUseTestCharge(shop, admin);
     const response = await admin.graphql(ACTIVE_SUBSCRIPTIONS_QUERY);
     const json = (await response.json()) as ActiveSubscriptionsResponse;
     const subscriptions =
       json?.data?.currentAppInstallation?.activeSubscriptions;
 
     if (!Array.isArray(subscriptions)) return null;
-    return hasStandard(subscriptions, isTest);
+    return hasStandard(subscriptions);
   } catch (error) {
     // eslint-disable-next-line no-undef, no-console
     console.error(

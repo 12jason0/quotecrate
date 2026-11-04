@@ -3,7 +3,6 @@ import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
-import { shouldUseTestCharge } from "../billing-mode.server";
 import {
   authenticate,
   BILLING_REQUIRED,
@@ -99,17 +98,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   //
   // A check that fails is logged and read as Free, so a Billing API outage shows
   // an Upgrade button instead of taking down every admin page.
-  //
-  // Whether test subscriptions count is the shop's own answer, not this
-  // deployment's — see billing-mode.server.ts.
   let plan: ShopPlan | null = null;
   if (BILLING_REQUIRED) {
     let subscriptionId: string | undefined;
     try {
-      const isTest = await shouldUseTestCharge(session.shop, admin);
+      // Accept test subscriptions too: Shopify turns charges on non-billable
+      // stores (e.g. App Store review stores) into test charges.
       const { appSubscriptions } = await billing.check({
         plans: [STANDARD_PLAN],
-        isTest,
+        isTest: true,
       });
 
       subscriptionId = appSubscriptions[0]?.id;

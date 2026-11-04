@@ -46,9 +46,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // A stale tab, or a Home page that fell back to Free because the check
   // failed, must not start a second subscription for a shop that has one.
+  // Test subscriptions count, as everywhere else (see app.tsx).
   const { hasActivePayment } = await billing.check({
     plans: [STANDARD_PLAN],
-    isTest,
+    isTest: true,
   });
   if (hasActivePayment) return redirect("/app");
 
@@ -68,19 +69,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
  * request can only ever cancel this shop's own Standard subscription.
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, billing, session, redirect } =
-    await authenticate.admin(request);
+  const { billing, redirect } = await authenticate.admin(request);
 
-  const isTest = await shouldUseTestCharge(session.shop, admin);
   const { appSubscriptions } = await billing.check({
     plans: [STANDARD_PLAN],
-    isTest,
+    isTest: true,
   });
 
   for (const subscription of appSubscriptions) {
     await billing.cancel({
       subscriptionId: subscription.id,
-      isTest,
+      isTest: true,
       prorate: true,
     });
   }
