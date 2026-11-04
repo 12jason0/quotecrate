@@ -164,6 +164,8 @@ export async function redactCustomerData(
  * `app/uninstalled` has normally already cleared the sessions by the time this
  * arrives; deleting them again is a no-op that costs nothing and covers the
  * case where that webhook never landed.
+ *
+ * QuoteUsage holds only monthly counts, but it is keyed by shop and goes too.
  */
 export async function redactShopData(shop: string): Promise<{
   quotes: number;
@@ -174,6 +176,7 @@ export async function redactShopData(shop: string): Promise<{
     prisma.quote.deleteMany({ where: { shop } }),
     prisma.session.deleteMany({ where: { shop } }),
     prisma.shopSetting.deleteMany({ where: { shop } }),
+    prisma.quoteUsage.deleteMany({ where: { shop } }),
   ]);
 
   return {

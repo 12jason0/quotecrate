@@ -18,7 +18,8 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "check:money": "tsx scripts/check-money-roundtrip.mts"
+    "check:money": "tsx scripts/check-money-roundtrip.mts",
+    "check:usage": "tsx scripts/check-quote-usage.mts"
   },
   "type": "module",
   "engines": {

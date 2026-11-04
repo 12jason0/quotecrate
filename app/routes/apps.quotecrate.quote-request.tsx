@@ -1,9 +1,9 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
-import prisma from "../db.server";
 import { sendQuoteRequestNotification } from "../quote-notification.server";
 import { checkQuoteRequestRate } from "../quote-rate-limit.server";
-import { authenticate } from "../shopify.server";
+import { createQuoteWithinPlan } from "../quote-usage.server";
+import { authenticate, BILLING_REQUIRED } from "../shopify.server";
 import { FALLBACK_CURRENCY, shopCurrency } from "../shop-currency.server";
 
 /**
@@ -195,28 +195,48 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // against the wrong one.
   const currency = (await shopCurrency(shop)) ?? FALLBACK_CURRENCY;
 
-  const quote = await prisma.quote.create({
-    data: {
-      shop,
-      customerName,
-      customerEmail,
-      company: company || null,
-      note: note || null,
-      status: "REQUESTED",
-      currency,
-      items: {
-        create: items.map((item) => ({
-          productId: item.productId,
-          variantId: item.variantId,
-          title: item.title,
-          variantTitle: item.variantTitle,
-          quantity: item.quantity,
-          // Pricing is the merchant's job, in the admin dashboard.
-          quotedUnitPriceMinor: null,
-        })),
+  // The Free plan's monthly allowance is spent here, and only here: pricing,
+  // sending, acceptance and checkout are never limited, so a quote that gets
+  // created can always be completed. BILLING_REQUIRED=false turns the limit off.
+  const quote = await createQuoteWithinPlan(
+    shop,
+    (tx) =>
+      tx.quote.create({
+        data: {
+          shop,
+          customerName,
+          customerEmail,
+          company: company || null,
+          note: note || null,
+          status: "REQUESTED",
+          currency,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              title: item.title,
+              variantTitle: item.variantTitle,
+              quantity: item.quantity,
+              // Pricing is the merchant's job, in the admin dashboard.
+              quotedUnitPriceMinor: null,
+            })),
+          },
+        },
+      }),
+    { enforce: BILLING_REQUIRED },
+  );
+
+  // Says nothing about plans or billing: that is between the store and us.
+  if (!quote) {
+    return jsonResponse(
+      {
+        ok: false,
+        error:
+          "This store isn't accepting additional quote requests online right now. Please contact the store directly.",
       },
-    },
-  });
+      403,
+    );
+  }
 
   // Tell the merchant, but never at the shopper's expense: the quote is already
   // committed, so the response goes out immediately and the email is left to

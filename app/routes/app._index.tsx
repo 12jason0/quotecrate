@@ -1,8 +1,10 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { useLoaderData } from "react-router";
+import { Form, useLoaderData, useRouteLoaderData } from "react-router";
+import { useRef } from "react";
 
 import { authenticate } from "../shopify.server";
+import type { loader as appLoader, ShopPlan } from "./app";
 
 /**
  * The filename of the block's Liquid file, without the extension —
@@ -42,8 +44,108 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { setupUrl: themeEditorDeepLink(session.shop, apiKey) };
 };
 
+function UpgradeButton({
+  upgrade,
+}: {
+  upgrade: { shop: string; host: string };
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  return (
+    // This has to leave as a real document request. Anything the client
+    // router handles — a `<Form>` submission, a client-side navigation, and, as
+    // the logs showed, an `<s-button href>` too — goes out as a single-fetch
+    // `/app/subscribe.data` call carrying an Authorization header.
+    // `redirectOutOfApp` reads that header as XHR: it answers with a bare 401
+    // that names the confirmation URL in a header and leaves the redirect to
+    // App Bridge, which does not act on it, so the merchant is shown
+    // "401 Unauthorized".
+    //
+    // `reloadDocument` is what opts out: React Router leaves the form alone and
+    // the browser navigates natively, so the request arrives as
+    // `GET /app/subscribe` with no `.data` and no Authorization header — the
+    // branch that redirects through /auth/exit-iframe and reaches Shopify's
+    // confirmation page.
+    //
+    // A GET form drops the action's own query string, so the three parameters
+    // that branch depends on are fields.
+    <Form ref={formRef} reloadDocument method="get" action="/app/subscribe">
+      <input type="hidden" name="shop" value={upgrade.shop} />
+      <input type="hidden" name="host" value={upgrade.host} />
+      <input type="hidden" name="embedded" value="1" />
+      {/* Deliberately not `type="submit"`. Whether this custom element
+          triggers a native submit is not something to leave to chance, so the
+          click drives the submission explicitly and is the only thing that
+          does — two paths could otherwise fire it twice. */}
+      <s-button
+        variant="primary"
+        onClick={() => formRef.current?.requestSubmit()}
+      >
+        Upgrade to Standard
+      </s-button>
+    </Form>
+  );
+}
+
+function SwitchToFreeButton() {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // An ordinary POST: cancelling is a single Admin API call and never leaves
+  // the iframe, so the client router can carry it.
+  return (
+    <Form ref={formRef} method="post" action="/app/subscribe">
+      <s-button onClick={() => formRef.current?.requestSubmit()}>
+        Switch to Free
+      </s-button>
+    </Form>
+  );
+}
+
+function PlanSection({ plan }: { plan: ShopPlan }) {
+  if (plan.name === "Standard") {
+    return (
+      <s-section slot="aside" heading="Plan">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            <s-text type="strong">Standard</s-text> — unlimited quote requests,
+            $14.99 USD per 30 days.
+          </s-paragraph>
+          <s-paragraph>
+            Switching to Free cancels the subscription. Your quotes stay as they
+            are, and new requests are limited to 5 per month.
+          </s-paragraph>
+          <SwitchToFreeButton />
+        </s-stack>
+      </s-section>
+    );
+  }
+
+  return (
+    <s-section slot="aside" heading="Plan">
+      <s-stack direction="block" gap="base">
+        <s-paragraph>
+          <s-text type="strong">Free plan</s-text> — {plan.used} of {plan.limit}{" "}
+          quote requests used in {plan.month}.
+        </s-paragraph>
+        {plan.used >= plan.limit && (
+          <s-paragraph>
+            New quote requests are paused until next month. Quotes you already
+            have can still be priced, sent and paid.
+          </s-paragraph>
+        )}
+        <s-paragraph>
+          <s-text type="strong">Standard</s-text> — unlimited quote requests,
+          $14.99 USD per 30 days, with a 14-day free trial.
+        </s-paragraph>
+        <UpgradeButton upgrade={plan.upgrade} />
+      </s-stack>
+    </s-section>
+  );
+}
+
 export default function Index() {
   const { setupUrl } = useLoaderData<typeof loader>();
+  const plan = useRouteLoaderData<typeof appLoader>("routes/app")?.plan;
 
   return (
     <s-page heading="QuoteCrate">
@@ -85,6 +187,8 @@ export default function Index() {
           </s-list-item>
         </s-ordered-list>
       </s-section>
+
+      {plan && <PlanSection plan={plan} />}
 
       <s-section slot="aside" heading="Setup">
         <s-stack direction="block" gap="base">

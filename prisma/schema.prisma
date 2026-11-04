@@ -71,6 +71,27 @@ model ShopSetting {
   updatedAt DateTime @updatedAt
 }
 
+/**
+ * How many quote requests a shop has filed in one UTC calendar month.
+ *
+ * The Free plan's monthly allowance is measured here rather than by counting
+ * Quote rows, because a merchant can delete a quote and a deleted quote must
+ * not hand the slot back. Each month is its own row, keyed "2026-10", so there
+ * is nothing to reset: a new month simply starts a row at zero.
+ *
+ * Slots are claimed with a single conditional upsert (see claimQuoteSlot in
+ * app/quote-usage.server.ts), so two requests racing at the limit cannot both
+ * get through.
+ */
+model QuoteUsage {
+  shop   String
+  // UTC calendar month, "YYYY-MM".
+  period String
+  count  Int    @default(0)
+
+  @@id([shop, period])
+}
+
 model Quote {
   id            String   @id @default(cuid())
   shop          String

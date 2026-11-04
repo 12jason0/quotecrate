@@ -28,19 +28,62 @@
  * `embedded=1` and `host` parameters that branch depends on.
  */
 
-import type { LoaderFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 
 import { shouldUseTestCharge } from "../billing-mode.server";
 import { authenticate, STANDARD_PLAN } from "../shopify.server";
 
+/**
+ * Upgrade to Standard. Approving or declining on Shopify's confirmation page
+ * returns the merchant to App Home, whose loader only reads the plan — so a
+ * decline simply leaves them on Free, with no route that asks again.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, billing, session } = await authenticate.admin(request);
+  const { admin, billing, session, redirect } =
+    await authenticate.admin(request);
 
   const isTest = await shouldUseTestCharge(session.shop, admin);
+
+  // A stale tab, or a Home page that fell back to Free because the check
+  // failed, must not start a second subscription for a shop that has one.
+  const { hasActivePayment } = await billing.check({
+    plans: [STANDARD_PLAN],
+    isTest,
+  });
+  if (hasActivePayment) return redirect("/app");
 
   await billing.request({ plan: STANDARD_PLAN, isTest });
 
   // `billing.request` returns `never` — it always throws the redirect. This is
   // unreachable, and satisfies the route's return type.
   return null;
+};
+
+/**
+ * Switch to Free: cancel the Standard subscription. Nothing else changes — the
+ * app stays installed and every quote stays where it is; the next page load
+ * reads no subscription and shows Free.
+ *
+ * The subscription is looked up here rather than taken from the form, so a
+ * request can only ever cancel this shop's own Standard subscription.
+ */
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, billing, session, redirect } =
+    await authenticate.admin(request);
+
+  const isTest = await shouldUseTestCharge(session.shop, admin);
+  const { appSubscriptions } = await billing.check({
+    plans: [STANDARD_PLAN],
+    isTest,
+  });
+
+  for (const subscription of appSubscriptions) {
+    await billing.cancel({
+      subscriptionId: subscription.id,
+      isTest,
+      prorate: true,
+    });
+  }
+
+  return redirect("/app");
 };

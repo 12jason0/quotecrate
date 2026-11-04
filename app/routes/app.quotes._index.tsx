@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useRouteLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
@@ -18,6 +18,7 @@ import {
   statusTone,
 } from "../quotes";
 import { FALLBACK_CURRENCY, shopCurrency } from "../shop-currency.server";
+import type { loader as appLoader } from "./app";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -104,6 +105,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function QuotesIndex() {
   const { quotes, requestedCount, sampleQuoteEnabled } =
     useLoaderData<typeof loader>();
+  const plan = useRouteLoaderData<typeof appLoader>("routes/app")?.plan;
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -138,6 +140,21 @@ export default function QuotesIndex() {
       {actionError && (
         <s-banner tone="critical" heading="Something went wrong">
           <s-paragraph>{actionError}</s-paragraph>
+        </s-banner>
+      )}
+
+      {plan?.name === "Free" && (
+        <s-banner
+          tone={plan.used >= plan.limit ? "warning" : "info"}
+          heading={`Free plan: ${plan.used} of ${plan.limit} quote requests used in ${plan.month}`}
+        >
+          <s-paragraph>
+            {plan.used >= plan.limit
+              ? "New quote requests are paused until next month. Quotes below can still be priced, sent and paid. "
+              : ""}
+            <s-link href="/app">Upgrade to Standard</s-link> for unlimited quote
+            requests.
+          </s-paragraph>
         </s-banner>
       )}
 
